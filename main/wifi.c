@@ -1,11 +1,8 @@
+#include "wifi.h"
+
 #include <string.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
-
-#define AP_WIFI_SSID "ESP32 OBD-II"
-#define AP_WIFI_PASSWORD "esp32obd"
-#define AP_WIFI_CHANNEL 6
-#define AP_MAX_STA_CONN 4
 
 static const char *TAG = "wifi_ap";
 
@@ -36,11 +33,11 @@ void wifi_init(void)
 
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid = AP_WIFI_SSID,
-            .ssid_len = strlen(AP_WIFI_SSID),
-            .channel = AP_WIFI_CHANNEL,
-            .password = AP_WIFI_PASSWORD,
-            .max_connection = AP_MAX_STA_CONN,
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .channel = WIFI_AP_CHANNEL,
+            .password = WIFI_AP_PASSWORD,
+            .max_connection = WIFI_AP_MAX_STA_CONN,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK,
         },
     };
@@ -49,5 +46,5 @@ void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "wifi_init finished. SSID=\"%s\" password=\"%s\" channel=%d", AP_WIFI_SSID, AP_WIFI_PASSWORD, AP_WIFI_CHANNEL);
+    ESP_LOGI(TAG, "wifi_init finished. SSID=\"%s\" password=\"%s\" channel=%d", WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL);
 }
