@@ -1,3 +1,8 @@
+/**
+ * Implementation of LAWICEL Serial Line CAN protocol (http://www.can232.com/docs/canusb_manual.pdf)
+ * Scope is to be compatible with Linux SocketCAN slcan driver, to allow usage of can-utils
+ */
+
 #include "slcan.h"
 
 #include "can.h"
@@ -17,21 +22,73 @@
 
 static const char *TAG = "slcan";
 
+/* Lookup table for HEX to ASCII conversion */
+static const char *hexLut = "0123456789ABCDEF";
+
+/**
+ * Format CAN frame for UART output
+ * @param buf must be at least TODO TBD long
+ */
+void slcanFormatFrame(can_message_t *msg, char *buf)
+{
+    if (msg->extd)
+    {
+        if (msg->rtr)
+            *buf++ = 'R';
+        else
+            *buf++ = 'T';
+
+        // TODO
+    }
+    else
+    {
+        if (msg->rtr)
+            *buf++ = 'r';
+        else
+            *buf++ = 't';
+
+        // 11bit identifier
+        *buf++ = hexLut[msg->identifier >> 8 & 0xF];
+        *buf++ = hexLut[msg->identifier >> 4 & 0xF];
+        *buf++ = hexLut[msg->identifier & 0xF];
+    }
+
+    // Data Length Code
+    *buf++ = hexLut[msg->data_length_code & 0xF];
+
+    // Data
+    for (int i = 0; i < msg->data_length_code; i++)
+    {
+        *buf++ = hexLut[msg->data[i] >> 4];
+        *buf++ = hexLut[msg->data[i] & 0xF];
+    }
+
+    *buf++ = '\r';
+    *buf++ = '\0';
+}
+
+/**
+ * Parse CAN frame from UART input
+ */
+void slcanParseFrame(void)
+{
+    // TODO
+}
+
 static void slcanTransmitTask(void *arg)
 {
     while (1)
     {
-        // char *str = "Hello, World!\r\n";
-        // uart_write_bytes(SLCAN_UART_NUM, str, strlen(str));
-
-        // vTaskDelay(1000 / portTICK_PERIOD_MS);
-
         can_message_t msg;
         xQueueReceive(canRxQueue, &msg, portMAX_DELAY);
 
-        char out[128];
-        snprintf(out, sizeof(out), "%.3X %d %.2X %.2X %.2X %.2X %.2X %.2X %.2X %.2X\r\n", msg.identifier, msg.data_length_code,
-                 msg.data[0], msg.data[1], msg.data[2], msg.data[3], msg.data[4], msg.data[5], msg.data[6], msg.data[7]);
+        // char out[128];
+        // snprintf(out, sizeof(out), "%.3X %d %.2X %.2X %.2X %.2X %.2X %.2X %.2X %.2X\r\n", msg.identifier, msg.data_length_code,
+        //          msg.data[0], msg.data[1], msg.data[2], msg.data[3], msg.data[4], msg.data[5], msg.data[6], msg.data[7]);
+        // uart_write_bytes(SLCAN_UART_NUM, out, strlen(out));
+
+        char out[64];
+        slcanFormatFrame(&msg, out);
         uart_write_bytes(SLCAN_UART_NUM, out, strlen(out));
     }
 }
@@ -49,7 +106,7 @@ void slcanInit(void)
     ESP_ERROR_CHECK(uart_set_pin(SLCAN_UART_NUM, SLCAN_UART_TXD_GPIO_NUM, SLCAN_UART_RXD_GPIO_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
     ESP_ERROR_CHECK(uart_driver_install(SLCAN_UART_NUM, SLCAN_UART_BUF_SIZE * 2, SLCAN_UART_BUF_SIZE * 2, 0, NULL, 0));
 
-    xTaskCreate(slcanTransmitTask, "SLCAN TX", 1024, NULL, SLCAN_TX_TASK_PRIO, NULL);
+    xTaskCreate(slcanTransmitTask, "SLCAN TX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "init completed");
 }
