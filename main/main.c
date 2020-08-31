@@ -3,6 +3,7 @@
 
 #include "wifi.h"
 #include "can.h"
+#include "slcan.h"
 
 void app_main(void)
 {
@@ -15,6 +16,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    wifi_init();
-    can_init();
+    // wifiInit();
+    canInit();
+    slcanInit();
 }

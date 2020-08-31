@@ -1,10 +1,9 @@
 #pragma once
 
-#define CAN_TX_GPIO_NUM GPIO_NUM_21
-#define CAN_RX_GPIO_NUM GPIO_NUM_22
-#define CAN_RX_TASK_PRIO 1
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
-// QueueHandle_t canRxQueue;
+QueueHandle_t canRxQueue;
 // QueueHandle_t canTxQueue;
 
-void can_init(void);
+void canInit(void);
