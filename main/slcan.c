@@ -11,7 +11,6 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
-#include "driver/can.h"
 
 #define SLCAN_UART_NUM UART_NUM_2
 #define SLCAN_UART_TXD_GPIO_NUM GPIO_NUM_17
@@ -21,28 +20,24 @@
 #define SLCAN_TX_TASK_PRIO 1  // TODO
 #define SLCAN_CMD_BUF_SIZE 32 // TODO
 
-static struct slcan_state
-{
-    bool isOpen;
-    enum slcan_mode
-    {
-        SLCAN_MODE_NORMAL = 1,
-        SLCAN_MODE_LISTEN_ONLY = 2
-    } mode;
-    uint32_t bitrate;
-} slcan_state = {
-    .isOpen = false,
-    .mode = SLCAN_MODE_NORMAL,
-    .bitrate = 125000,
+static const char *TAG = "SLCAN";
+
+// Hex to ASCII conversion function
+#define HEX2ASCII(x) HEX2ASCII_LUT[(x)]
+static const char *HEX2ASCII_LUT = "0123456789ABCDEF";
+
+// clang-format off
+// ASCII to hex conversion function
+#define ASCII2HEX(x) ASCII2HEX_LUT[(x) - 0x30]
+static const uint8_t ASCII2HEX_LUT[] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F
 };
-
-static const char *TAG = "slcan";
-
-/* Hex to ASCII conversion lookup table */
-static const char *HEX2ASCII = "0123456789ABCDEF";
+// clang-format on
 
 /**
- * Return an OK response, with optional data
+ * Send an OK response, with optional data
  * @param data can be NULL
  */
 static void slcanRespondOk(char *data)
@@ -51,67 +46,96 @@ static void slcanRespondOk(char *data)
     {
         char buf[32];
         snprintf(buf, sizeof(buf), "%s\r", data);
+
+        ESP_LOGI(TAG, "respond ok data=\"%s\"", data);
         uart_write_bytes(SLCAN_UART_NUM, buf, strlen(buf));
     }
     else
     {
+        ESP_LOGI(TAG, "respond ok");
         uart_write_bytes(SLCAN_UART_NUM, "\r", 1);
     }
 }
 
+/**
+ * Send an error response
+ */
 static void slcanRespondError(void)
 {
+    ESP_LOGI(TAG, "respond error");
     uart_write_bytes(SLCAN_UART_NUM, "\a", 1);
 }
 
 /**
  * Format received CAN frame for UART output
- * @param buf must be at least TODO TBD long
+ * @param msg input frame
+ * @param str output formatted string, must be at least TODO TBD long
  */
-static void slcanFormatFrame(can_message_t *msg, char *buf)
+static void slcanFormatFrame(can_message_t *msg, char *str)
 {
     if (msg->extd)
     {
         if (msg->rtr)
-            *buf++ = 'R';
+            *str++ = 'R';
         else
-            *buf++ = 'T';
+            *str++ = 'T';
 
         // 29bit identifier
-        *buf++ = HEX2ASCII[msg->identifier >> 28 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 24 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 20 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 16 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 12 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 8 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 4 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier & 0xF];
+        *str++ = HEX2ASCII(msg->identifier >> 28 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 24 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 20 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 16 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 12 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier & 0xF);
     }
     else
     {
         if (msg->rtr)
-            *buf++ = 'r';
+            *str++ = 'r';
         else
-            *buf++ = 't';
+            *str++ = 't';
 
         // 11bit identifier
-        *buf++ = HEX2ASCII[msg->identifier >> 8 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier >> 4 & 0xF];
-        *buf++ = HEX2ASCII[msg->identifier & 0xF];
+        *str++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
+        *str++ = HEX2ASCII(msg->identifier & 0xF);
     }
 
     // Data Length Code
-    *buf++ = HEX2ASCII[msg->data_length_code & 0xF];
+    *str++ = HEX2ASCII(msg->data_length_code & 0xF);
 
     // Data bytes
     for (int i = 0; i < msg->data_length_code; i++)
     {
-        *buf++ = HEX2ASCII[msg->data[i] >> 4];
-        *buf++ = HEX2ASCII[msg->data[i] & 0xF];
+        *str++ = HEX2ASCII(msg->data[i] >> 4);
+        *str++ = HEX2ASCII(msg->data[i] & 0xF);
     }
 
-    *buf++ = '\r';
-    *buf++ = '\0';
+    *str++ = '\r';
+    *str++ = '\0';
+}
+
+/**
+ * Parse t, T, r, R frame commands
+ * @param str input command string
+ * @param msg output parsed CAN frame
+ */
+static void slcanParseFrame(char *str, can_message_t *msg)
+{
+    size_t strLen = strlen(str);
+
+    msg->flags = 0; // Reset all flags
+
+    if (strLen > 0)
+    {
+        msg->extd = (str[0] == 'T' || str[0] == 'R') ? 1 : 0;
+        msg->rtr = (str[0] == 'r' || str[0] == 'R') ? 1 : 0;
+
+        // TODO
+        // msg->identifier = ASCII2HEX();
+    }
 }
 
 /**
@@ -119,57 +143,62 @@ static void slcanFormatFrame(can_message_t *msg, char *buf)
  */
 static void slcanRxTask(void *arg)
 {
+    static can_timing_config_t *slcanConfigTiming;
+
     while (1)
     {
         uint8_t cmd[SLCAN_CMD_BUF_SIZE];
 
         // Read from UART with a 10ms timeout
-        int readBytes = uart_read_bytes(SLCAN_UART_NUM, cmd, sizeof(cmd), 10 / portTICK_PERIOD_MS);
+        // TODO is the timeout safe? better split commands by CR (would also be compatible with manual input)
+        int readBytes = uart_read_bytes(SLCAN_UART_NUM, cmd, sizeof(cmd), pdMS_TO_TICKS(10));
         if (readBytes > 0)
         {
+            ESP_LOGI(TAG, "command %.*s", readBytes, cmd);
+
             switch (cmd[0])
             {
             case 'S': // Set CAN standard bitrate
-                if (slcan_state.isOpen)
+                if (canIsOpen())
                     slcanRespondError();
                 else
                 {
                     switch (cmd[1])
                     {
                     case '0':
-                        slcan_state.bitrate = 10000;
-                        slcanRespondOk(NULL);
+                        // 10kbps unsupported
+                        slcanRespondError();
                         break;
                     case '1':
-                        slcan_state.bitrate = 20000;
-                        slcanRespondOk(NULL);
+                        // 20kbps unsupported
+                        slcanRespondError();
                         break;
                     case '2':
-                        slcan_state.bitrate = 50000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_50KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '3':
-                        slcan_state.bitrate = 100000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_100KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '4':
-                        slcan_state.bitrate = 125000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_125KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '5':
-                        slcan_state.bitrate = 250000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_250KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '6':
-                        slcan_state.bitrate = 500000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_500KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '7':
-                        slcan_state.bitrate = 800000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_800KBITS();
                         slcanRespondOk(NULL);
                         break;
                     case '8':
-                        slcan_state.bitrate = 1000000;
+                        slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_1MBITS();
                         slcanRespondOk(NULL);
                         break;
                     default:
@@ -178,33 +207,40 @@ static void slcanRxTask(void *arg)
                 }
                 break;
             case 'O': // Open CAN channel
-                if (slcan_state.isOpen)
+                if (canIsOpen() || slcanConfigTiming == NULL)
                     slcanRespondError();
                 else
                 {
-                    slcan_state.mode = SLCAN_MODE_NORMAL;
-                    // TODO init can using config from slcan_state
+                    if (canOpen(CAN_MODE_NORMAL, slcanConfigTiming) == ESP_OK)
+                        slcanRespondOk(NULL);
+                    else
+                        slcanRespondError();
                 }
                 break;
             case 'L': // Open CAN channel in listen-only mode
-                if (slcan_state.isOpen)
+                if (canIsOpen() || slcanConfigTiming == NULL)
                     slcanRespondError();
                 else
                 {
-                    slcan_state.mode = SLCAN_MODE_LISTEN_ONLY;
-                    // TODOinit can using config from slcan_state
+                    if (canOpen(CAN_MODE_LISTEN_ONLY, slcanConfigTiming) == ESP_OK)
+                        slcanRespondOk(NULL);
+                    else
+                        slcanRespondError();
                 }
                 break;
             case 'C': // Close CAN channel
-                if (!slcan_state.isOpen)
+                if (!canIsOpen())
                     slcanRespondError();
                 else
                 {
-                    // TODO
+                    if (canClose() == ESP_OK)
+                        slcanRespondOk(NULL);
+                    else
+                        slcanRespondError();
                 }
                 break;
             case 't': // Send standard frame
-                if (!slcan_state.isOpen || slcan_state.mode != SLCAN_MODE_NORMAL)
+                if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
                     slcanRespondError();
                 else
                 {
@@ -212,7 +248,7 @@ static void slcanRxTask(void *arg)
                 }
                 break;
             case 'T': // Send extended frame
-                if (!slcan_state.isOpen || slcan_state.mode != SLCAN_MODE_NORMAL)
+                if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
                     slcanRespondError();
                 else
                 {
@@ -220,7 +256,7 @@ static void slcanRxTask(void *arg)
                 }
                 break;
             case 'r': // Send standard remote frame
-                if (!slcan_state.isOpen || slcan_state.mode != SLCAN_MODE_NORMAL)
+                if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
                     slcanRespondError();
                 else
                 {
@@ -228,7 +264,7 @@ static void slcanRxTask(void *arg)
                 }
                 break;
             case 'R': // Send extended remote frame
-                if (!slcan_state.isOpen || slcan_state.mode != SLCAN_MODE_NORMAL)
+                if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
                     slcanRespondError();
                 else
                 {
@@ -236,7 +272,7 @@ static void slcanRxTask(void *arg)
                 }
                 break;
             case 'F': // Read and clear status flags
-                if (!slcan_state.isOpen)
+                if (!canIsOpen())
                     slcanRespondError();
                 else
                 {
