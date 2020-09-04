@@ -27,7 +27,6 @@ static void canRxTask(void *arg)
         // Block task while CAN is not open
         if (xQueuePeek(canOpenLockQueue, &canOpenLockDummy, portMAX_DELAY) == pdTRUE)
         {
-            ESP_LOGI(TAG, "rx task unblocked");
             can_message_t msg;
 
             // Try receiving for 100ms max
@@ -67,8 +66,8 @@ esp_err_t canOpen(can_mode_t mode, can_timing_config_t *timingConfig)
     canGeneralConfig = &(can_general_config_t)CAN_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO_NUM, CAN_RX_GPIO_NUM, mode);
     const can_filter_config_t filterConfig = CAN_FILTER_CONFIG_ACCEPT_ALL();
 
-    UTIL_CHECK_RETURN(can_driver_install(canGeneralConfig, timingConfig, &filterConfig), ESP_FAIL);
-    UTIL_CHECK_RETURN(can_start(), ESP_FAIL);
+    UTIL_ERROR_CHECK_RETURN(can_driver_install(canGeneralConfig, timingConfig, &filterConfig), ESP_FAIL);
+    UTIL_ERROR_CHECK_RETURN(can_start(), ESP_FAIL);
 
     xQueueSendToBack(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
 
