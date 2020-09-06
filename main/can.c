@@ -89,3 +89,11 @@ esp_err_t canClose(void)
     ESP_LOGI(TAG, "closed");
     return ESP_OK;
 }
+
+esp_err_t canTransmit(can_message_t *msg)
+{
+    if (!canIsOpen())
+        return ESP_ERR_INVALID_STATE;
+
+    return can_transmit(msg, pdMS_TO_TICKS(100));
+}

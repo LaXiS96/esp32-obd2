@@ -38,8 +38,15 @@ static const uint8_t ASCII2HEX_LUT[] = {
 };
 // clang-format on
 
-// TODO fix: invalid_arg from can_driver_install after Sx+O commands
-static can_timing_config_t *slcanConfigTiming;
+static can_timing_config_t slcanTimingConfig50K = CAN_TIMING_CONFIG_50KBITS();
+static can_timing_config_t slcanTimingConfig100K = CAN_TIMING_CONFIG_100KBITS();
+static can_timing_config_t slcanTimingConfig125K = CAN_TIMING_CONFIG_125KBITS();
+static can_timing_config_t slcanTimingConfig250K = CAN_TIMING_CONFIG_250KBITS();
+static can_timing_config_t slcanTimingConfig500K = CAN_TIMING_CONFIG_500KBITS();
+static can_timing_config_t slcanTimingConfig800K = CAN_TIMING_CONFIG_800KBITS();
+static can_timing_config_t slcanTimingConfig1M = CAN_TIMING_CONFIG_1MBITS();
+
+static can_timing_config_t *slcanChosenTimingConfig;
 
 /**
  * Send an OK response, with optional data
@@ -214,39 +221,36 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             switch (buf[1])
             {
             case '0':
-                // 10kbps unsupported
-                slcanRespondError();
-                break;
             case '1':
-                // 20kbps unsupported
+                // 10kbps and 20kbps unsupported
                 slcanRespondError();
                 break;
             case '2':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_50KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig50K;
                 slcanRespondOk(NULL);
                 break;
             case '3':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_100KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig100K;
                 slcanRespondOk(NULL);
                 break;
             case '4':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_125KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig125K;
                 slcanRespondOk(NULL);
                 break;
             case '5':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_250KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig250K;
                 slcanRespondOk(NULL);
                 break;
             case '6':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_500KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig500K;
                 slcanRespondOk(NULL);
                 break;
             case '7':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_800KBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig800K;
                 slcanRespondOk(NULL);
                 break;
             case '8':
-                slcanConfigTiming = &(can_timing_config_t)CAN_TIMING_CONFIG_1MBITS();
+                slcanChosenTimingConfig = &slcanTimingConfig1M;
                 slcanRespondOk(NULL);
                 break;
             default:
@@ -255,22 +259,22 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
         }
         break;
     case 'O': // Open CAN channel
-        if (canIsOpen() || slcanConfigTiming == NULL)
+        if (canIsOpen() || slcanChosenTimingConfig == NULL)
             slcanRespondError();
         else
         {
-            if (canOpen(CAN_MODE_NORMAL, slcanConfigTiming) == ESP_OK)
+            if (canOpen(CAN_MODE_NORMAL, slcanChosenTimingConfig) == ESP_OK)
                 slcanRespondOk(NULL);
             else
                 slcanRespondError();
         }
         break;
     case 'L': // Open CAN channel in listen-only mode
-        if (canIsOpen() || slcanConfigTiming == NULL)
+        if (canIsOpen() || slcanChosenTimingConfig == NULL)
             slcanRespondError();
         else
         {
-            if (canOpen(CAN_MODE_LISTEN_ONLY, slcanConfigTiming) == ESP_OK)
+            if (canOpen(CAN_MODE_LISTEN_ONLY, slcanChosenTimingConfig) == ESP_OK)
                 slcanRespondOk(NULL);
             else
                 slcanRespondError();
@@ -296,9 +300,10 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             can_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
-                // TODO
-                uart_write_bytes(SLCAN_UART_NUM, (const char *)&frame, sizeof(frame));
-                slcanRespondOk("z");
+                if (canTransmit(&frame))
+                    slcanRespondOk("z");
+                else
+                    slcanRespondError();
             }
             else
                 slcanRespondError();
@@ -313,9 +318,10 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             can_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
-                // TODO
-                uart_write_bytes(SLCAN_UART_NUM, (const char *)&frame, sizeof(frame));
-                slcanRespondOk("Z");
+                if (canTransmit(&frame))
+                    slcanRespondOk("Z");
+                else
+                    slcanRespondError();
             }
             else
                 slcanRespondError();
@@ -364,15 +370,15 @@ static void slcanRxTask(void *arg)
         bufLen = uart_read_bytes(SLCAN_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
         if (bufLen > 0)
         {
-            ESP_LOGI(TAG, "parsing %d", bufLen);
-
             uint8_t *pCmdStart = buf;                           // Current command start position
             uint8_t *pCmdEnd = memchr(pCmdStart, '\r', bufLen); // Current command end position (CR character)
             size_t cmdLen = 0;                                  // Current command length
 
             if (bufLen == sizeof(buf) && pCmdEnd == NULL)
             { // TODO error: command longer than max command length, not permitted
-                ESP_LOGI(TAG, "command buffer overrun");
+                ESP_LOGE(TAG, "RX command buffer overrun");
+                slcanRespondError();
+                continue;
             }
 
             while (pCmdEnd != NULL)
@@ -382,7 +388,6 @@ static void slcanRxTask(void *arg)
                 if (bufRemainderLen > 0)
                 {
                     size_t tmpLen = bufRemainderLen + cmdLen;
-                    ESP_LOGI(TAG, "concatenating %d", tmpLen);
 
                     // Concatenate remainder with current command and parse it
                     uint8_t *tmpBuf = malloc(tmpLen);
@@ -396,7 +401,6 @@ static void slcanRxTask(void *arg)
                 }
                 else
                 {
-                    ESP_LOGI(TAG, "normal %d", cmdLen);
                     slcanExecuteCommand(pCmdStart, cmdLen);
                 }
 
@@ -408,7 +412,6 @@ static void slcanRxTask(void *arg)
             // If buffer does not end with CR, save remaining characters for next iteration
             if (bufLen > 0)
             {
-                ESP_LOGI(TAG, "saving remainder %d", bufLen);
                 memcpy(bufRemainder, pCmdStart, bufLen);
                 bufRemainderLen += bufLen;
             }
