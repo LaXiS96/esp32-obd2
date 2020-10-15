@@ -4,6 +4,7 @@
 #include "wifi.h"
 #include "can.h"
 #include "slcan.h"
+#include "sd.h"
 
 void app_main(void)
 {
@@ -17,6 +18,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // wifiInit();
-    canInit();
-    slcanInit();
+    // canInit();
+    // slcanInit();
+    sdInit();
 }

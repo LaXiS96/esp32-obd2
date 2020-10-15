@@ -1,10 +1,13 @@
 # ESP32 ODB-II adapter
 
-This project starts as a tool to access the CAN busses on my personal Mazda3, for reverse engineering and for fun.
+This project started as a tool to access the CAN buses on my personal Mazda3, for reverse engineering and for fun.
 
 ## Features
-- CAN connection with vehicle (using any compatible transceiver: SN65HVD23x, MCP2551 (with RX voltage translation), etc...)
-- Linux SocketCAN compatibility (to allow usage of the very useful can-utils) via serial interface (slcan driver)
+
+- CAN connection with vehicle
+    - recommended transceivers: SN65HVD23x, MCP2551 (with 5V -> 3.3V RX voltage translation)
+- Linux SocketCAN compatibility using `slcan` driver
+- direct logging to SD card (TODO)
 - socket communication over WiFi softAP (TBD)
 - custom protocol for better efficiency (TBD)
 - reverse engineered Mazda-specific messages (TODO)
@@ -15,39 +18,46 @@ This project starts as a tool to access the CAN busses on my personal Mazda3, fo
 
 ### Linux SocketCAN / can-utils usage example
 
-This adapter will implement the LAWICEL SLCAN protocol as expected by the slcan SocketCAN driver, so that it can be used with `slcand` and allow the usage of can-utils programs like `cansniffer`.
+This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` SocketCAN driver, so that it can be used with `slcand` and allow the usage of can-utils programs like `cansniffer`.
 
     sudo slcand -o -c -f -S 576000 /dev/ttyUSB0 slcan0
     sudo ip link set up slcan0
     cansniffer slcan0
 
-### Cable
+### OBD-II pin and cable mapping
 
-OBD-II connector pins:
+| Ethernet twisted pair | Signal            | OBD-II connector pin
+| --------------------- | ----------------- | -
+| blue + white blue     | +12V              | 16
+| brown + white brown   | ground            | 4
+| white orange          | HS CANH (500kbps) | 6
+| orange                | HS CANL (500kbps) | 14
+| white green           | MS CANH (125kbps) | 3
+| green                 | MS CANL (125kbps) | 11
 
-    3   MS CANH
-    4   chassis ground
-    6   HS CANH
-    11  MS CANL
-    14  HS CANL
-    16  +12V
+### SD card pin mapping
 
-Ethernet cable mapping (similar to Ethernet 10/100 PoE):
+| Card pin | SPI mode | SD 1-bit mode | SD 4-bit mode | ESP32
+| -------- | -------- | ------------- | ------------- | -
+| 1        | -        | -             | DAT2          | (12)
+| 2        | CS       | CD            | DAT3          | (13)
+| 3        | MOSI     | CMD           | CMD           | 15
+| 4        | 3V3      | 3V3           | 3V3           | 3V3
+| 5        | SCLK     | CLK           | CLK           | 14
+| 6        | GND      | GND           | GND           | GND
+| 7        | MISO     | DAT0          | DAT0          | 2
+| 8        | -        | -             | DAT1          | (4)
 
-    blue + white blue       +12V    (16)
-    brown + white brown     ground  (4)
-    white orange            HS CANH (6)
-    orange                  HS CANL (14)
-    white green             MS CANH (3)
-    green                   MS CANL (11)
+Notes:
 
-### Data rates
+- For SD 1-bit mode, CMD, CLK and DAT0 lines must be pulled up (10KOhm). CD/DAT3 should also be pulled up (10KOhm) on the card side
+- GPIO2 (DAT0) conflicts with ESP32 serial download mode, possible solutions: disconnect GPIO2 from SD or jumper GPIO0 and GPIO2 (auto-reset should work)
 
-HS CAN: 500kbps
+Schematic of the microSD breakout board I'm using:
 
-MS CAN: 125kbps
+![schematic](https://win.adrirobot.it/Micro_SD_Card_Module/Micro-SD-Card-Module_circuit.jpg)
 
-### Links
+### Useful links
 
 - http://opengarages.org/handbook/ebook/
 - https://forscan.org/forum/viewtopic.php?t=4
