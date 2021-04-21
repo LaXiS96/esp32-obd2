@@ -19,6 +19,6 @@ void app_main(void)
 
     // wifiInit();
     // canInit();
-    // slcanInit();
-    sdInit();
+    slcanInit();
+    // sdInit();
 }

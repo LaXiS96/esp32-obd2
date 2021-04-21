@@ -13,10 +13,10 @@
 #include "driver/gpio.h"
 #include "driver/uart.h"
 
-#define SLCAN_UART_NUM UART_NUM_2
-#define SLCAN_UART_TXD_GPIO_NUM GPIO_NUM_17
-#define SLCAN_UART_RXD_GPIO_NUM GPIO_NUM_16
-#define SLCAN_UART_BAUDRATE 576000
+#define SLCAN_UART_NUM UART_NUM_0  // ESP console log moved to UART1 via menuconfig
+#define SLCAN_UART_TXD_GPIO_NUM 1  // UART2: GPIO_NUM_17
+#define SLCAN_UART_RXD_GPIO_NUM 3  // UART2: GPIO_NUM_16
+#define SLCAN_UART_BAUDRATE 921600 // default CP2102 config also supports 1200000 and 1500000
 #define SLCAN_UART_BUF_SIZE 1024
 #define SLCAN_TX_TASK_PRIO 1 // TODO
 
@@ -38,15 +38,15 @@ static const uint8_t ASCII2HEX_LUT[] = {
 };
 // clang-format on
 
-static can_timing_config_t slcanTimingConfig50K = CAN_TIMING_CONFIG_50KBITS();
-static can_timing_config_t slcanTimingConfig100K = CAN_TIMING_CONFIG_100KBITS();
-static can_timing_config_t slcanTimingConfig125K = CAN_TIMING_CONFIG_125KBITS();
-static can_timing_config_t slcanTimingConfig250K = CAN_TIMING_CONFIG_250KBITS();
-static can_timing_config_t slcanTimingConfig500K = CAN_TIMING_CONFIG_500KBITS();
-static can_timing_config_t slcanTimingConfig800K = CAN_TIMING_CONFIG_800KBITS();
-static can_timing_config_t slcanTimingConfig1M = CAN_TIMING_CONFIG_1MBITS();
+static twai_timing_config_t slcanTimingConfig50K = TWAI_TIMING_CONFIG_50KBITS();
+static twai_timing_config_t slcanTimingConfig100K = TWAI_TIMING_CONFIG_100KBITS();
+static twai_timing_config_t slcanTimingConfig125K = TWAI_TIMING_CONFIG_125KBITS();
+static twai_timing_config_t slcanTimingConfig250K = TWAI_TIMING_CONFIG_250KBITS();
+static twai_timing_config_t slcanTimingConfig500K = TWAI_TIMING_CONFIG_500KBITS();
+static twai_timing_config_t slcanTimingConfig800K = TWAI_TIMING_CONFIG_800KBITS();
+static twai_timing_config_t slcanTimingConfig1M = TWAI_TIMING_CONFIG_1MBITS();
 
-static can_timing_config_t *slcanChosenTimingConfig;
+static twai_timing_config_t *slcanChosenTimingConfig;
 
 /**
  * Send an OK response, with optional data
@@ -83,7 +83,7 @@ static void slcanRespondError(void)
  * @param msg input frame
  * @param str formatted output string, must be at least TODO long
  */
-static void slcanFormatFrame(can_message_t *msg, char *str)
+static void slcanFormatFrame(twai_message_t *msg, char *str)
 {
     if (msg->extd)
     {
@@ -135,7 +135,7 @@ static void slcanFormatFrame(can_message_t *msg, char *str)
  * @param len input command buffer length
  * @param msg output parsed CAN frame
  */
-static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, can_message_t *msg)
+static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
 {
     if (len == 0)
         return ESP_FAIL;
@@ -263,7 +263,7 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             slcanRespondError();
         else
         {
-            if (canOpen(CAN_MODE_NORMAL, slcanChosenTimingConfig) == ESP_OK)
+            if (canOpen(TWAI_MODE_NORMAL, slcanChosenTimingConfig) == ESP_OK)
                 slcanRespondOk(NULL);
             else
                 slcanRespondError();
@@ -274,7 +274,7 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             slcanRespondError();
         else
         {
-            if (canOpen(CAN_MODE_LISTEN_ONLY, slcanChosenTimingConfig) == ESP_OK)
+            if (canOpen(TWAI_MODE_LISTEN_ONLY, slcanChosenTimingConfig) == ESP_OK)
                 slcanRespondOk(NULL);
             else
                 slcanRespondError();
@@ -293,11 +293,11 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
         break;
     case 't': // Send standard frame
     case 'r': // Send standard remote frame
-        if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
+        if (!canIsOpen() || canGetMode() != TWAI_MODE_NORMAL)
             slcanRespondError();
         else
         {
-            can_message_t frame;
+            twai_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
                 if (canTransmit(&frame))
@@ -311,11 +311,11 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
         break;
     case 'T': // Send extended frame
     case 'R': // Send extended remote frame
-        if (!canIsOpen() || canGetMode() != CAN_MODE_NORMAL)
+        if (!canIsOpen() || canGetMode() != TWAI_MODE_NORMAL)
             slcanRespondError();
         else
         {
-            can_message_t frame;
+            twai_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
                 if (canTransmit(&frame))
@@ -426,7 +426,7 @@ static void slcanFramesTxTask(void *arg)
 {
     while (1)
     {
-        can_message_t msg;
+        twai_message_t msg;
         xQueueReceive(canRxQueue, &msg, portMAX_DELAY);
 
         char out[32];

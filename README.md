@@ -1,30 +1,39 @@
-# ESP32 ODB-II adapter
+# ESP32 OBD-II adapter
 
-This project started as a tool to access the CAN buses on my personal Mazda3, for reverse engineering and for fun.
+This project is work-in-progress and started as a tool to access the CAN buses on my Mazda3, for reverse engineering and for fun.
 
-## Features
+Development is done on an ESP32 DevKitC V4 board, mounting an ESP32-WROOM-32D module.
 
-- CAN connection with vehicle
-    - recommended transceivers: SN65HVD23x, MCP2551 (with 5V -> 3.3V RX voltage translation)
-- Linux SocketCAN compatibility using `slcan` driver
-- direct logging to SD card (TODO)
-- socket communication over WiFi softAP (TBD)
-- custom protocol for better efficiency (TBD)
-- reverse engineered Mazda-specific messages (TODO)
-- OBD diagnostics (TODO)
-- ... (TBD)
+## Features roadmap
+
+- ✔ CAN connection with vehicle
+    - tested transceivers: SN65HVD230, MCP2551 (with 5V -> 3.3V RX voltage translation)
+- ✔ Linux SocketCAN compatibility with [`slcan` driver](https://github.com/torvalds/linux/blob/master/drivers/net/can/slcan.c)
+- ❔ logging to SD card
+    - same file format as `candump`
+- ❔ socket communication over WiFi softAP
+    - how to keep compatibility with `slcan`? just make a TCP-serial bridge with `socat`? any other way to create a SocketCAN interface while still using `slcan` over TCP?
+    - interesting: `python-can` supports "[remote serial ports](https://python-can.readthedocs.io/en/master/interfaces/slcan.html)"
+    - TCP unicast or UDP multicast?
+    - payload serialization strategy?
+- ❔ OBD diagnostics
+- ❔ reverse engineered Mazda-specific messages
+- ❔ custom protocol for better efficiency?
+- ❔ ...
 
 ## Useful info
 
 ### Linux SocketCAN / can-utils usage example
 
-This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` SocketCAN driver, so that it can be used with `slcand` and allow the usage of can-utils programs like `cansniffer`.
+This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` SocketCAN driver, so that it can be used with [`can-utils`](https://github.com/linux-can/can-utils)' `slcand` and other utilities like `cansniffer`.
 
     sudo slcand -o -c -f -S 576000 /dev/ttyUSB0 slcan0
     sudo ip link set up slcan0
     cansniffer slcan0
 
 ### OBD-II pin and cable mapping
+
+Ethernet twisted pair cable should help with signal integrity (it's designed to carry differential signals).
 
 | Ethernet twisted pair | Signal            | OBD-II connector pin
 | --------------------- | ----------------- | -

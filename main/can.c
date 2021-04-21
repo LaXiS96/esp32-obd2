@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
-#include "driver/can.h"
+#include "driver/twai.h"
 
 #define CAN_TX_GPIO_NUM GPIO_NUM_21
 #define CAN_RX_GPIO_NUM GPIO_NUM_22
@@ -18,7 +18,7 @@ static const char *TAG = "CAN";
 static QueueHandle_t canOpenLockQueue;
 static uint8_t canOpenLockDummy;
 
-static can_general_config_t *canGeneralConfig;
+static twai_general_config_t *canGeneralConfig;
 
 static void canRxTask(void *arg)
 {
@@ -27,10 +27,10 @@ static void canRxTask(void *arg)
         // Block task while CAN is not open
         if (xQueuePeek(canOpenLockQueue, &canOpenLockDummy, portMAX_DELAY) == pdTRUE)
         {
-            can_message_t msg;
+            twai_message_t msg;
 
             // Try receiving for 100ms max
-            if (can_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
+            if (twai_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
                 xQueueSendToBack(canRxQueue, &msg, portMAX_DELAY);
         }
     }
@@ -38,7 +38,7 @@ static void canRxTask(void *arg)
 
 void canInit(void)
 {
-    canRxQueue = xQueueCreate(8, sizeof(can_message_t));
+    canRxQueue = xQueueCreate(8, sizeof(twai_message_t));
     canOpenLockQueue = xQueueCreate(1, sizeof(canOpenLockDummy));
 
     xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CAN_RX_TASK_PRIO, NULL);
@@ -51,23 +51,23 @@ bool canIsOpen(void)
     return xQueuePeek(canOpenLockQueue, &canOpenLockDummy, 0) == pdTRUE;
 }
 
-can_mode_t canGetMode(void)
+twai_mode_t canGetMode(void)
 {
     return (canGeneralConfig != NULL) ? canGeneralConfig->mode : -1;
 }
 
-esp_err_t canOpen(can_mode_t mode, can_timing_config_t *timingConfig)
+esp_err_t canOpen(twai_mode_t mode, twai_timing_config_t *timingConfig)
 {
     if (canIsOpen())
         return ESP_ERR_INVALID_STATE;
 
     ESP_LOGI(TAG, "opening");
 
-    canGeneralConfig = &(can_general_config_t)CAN_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO_NUM, CAN_RX_GPIO_NUM, mode);
-    const can_filter_config_t filterConfig = CAN_FILTER_CONFIG_ACCEPT_ALL();
+    canGeneralConfig = &(twai_general_config_t)TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO_NUM, CAN_RX_GPIO_NUM, mode);
+    const twai_filter_config_t filterConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-    UTIL_ERROR_CHECK_RETURN(can_driver_install(canGeneralConfig, timingConfig, &filterConfig), ESP_FAIL);
-    UTIL_ERROR_CHECK_RETURN(can_start(), ESP_FAIL);
+    UTIL_ERROR_CHECK_RETURN(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig), ESP_FAIL);
+    UTIL_ERROR_CHECK_RETURN(twai_start(), ESP_FAIL);
 
     xQueueSendToBack(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
 
@@ -83,17 +83,17 @@ esp_err_t canClose(void)
     ESP_LOGI(TAG, "closing");
     xQueueReceive(canOpenLockQueue, &canOpenLockDummy, portMAX_DELAY);
 
-    can_stop();
-    can_driver_uninstall();
+    twai_stop();
+    twai_driver_uninstall();
 
     ESP_LOGI(TAG, "closed");
     return ESP_OK;
 }
 
-esp_err_t canTransmit(can_message_t *msg)
+esp_err_t canTransmit(twai_message_t *msg)
 {
     if (!canIsOpen())
         return ESP_ERR_INVALID_STATE;
 
-    return can_transmit(msg, pdMS_TO_TICKS(100));
+    return twai_transmit(msg, pdMS_TO_TICKS(100));
 }
