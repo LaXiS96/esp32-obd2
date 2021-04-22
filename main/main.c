@@ -18,7 +18,7 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // wifiInit();
-    // canInit();
+    canInit();
     slcanInit();
     // sdInit();
 }

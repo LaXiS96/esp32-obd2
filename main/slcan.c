@@ -49,7 +49,7 @@ static twai_timing_config_t slcanTimingConfig1M = TWAI_TIMING_CONFIG_1MBITS();
 static twai_timing_config_t *slcanChosenTimingConfig;
 
 /**
- * Send an OK response, with optional data
+ * Send an OK response (0x0D), with optional data
  * @param data string, can be NULL
  */
 static void slcanRespondOk(char *data)
@@ -70,7 +70,7 @@ static void slcanRespondOk(char *data)
 }
 
 /**
- * Send an error response
+ * Send an error response (0x07)
  */
 static void slcanRespondError(void)
 {
