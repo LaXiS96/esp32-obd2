@@ -1,6 +1,7 @@
 #include "esp_system.h"
 #include "nvs_flash.h"
 
+#include "bt.h"
 #include "wifi.h"
 #include "can.h"
 #include "slcan.h"
@@ -17,6 +18,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    btInit();
     // wifiInit();
     canInit();
     slcanInit();

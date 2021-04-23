@@ -66,8 +66,8 @@ esp_err_t canOpen(twai_mode_t mode, twai_timing_config_t *timingConfig)
     canGeneralConfig = &(twai_general_config_t)TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX_GPIO_NUM, CAN_RX_GPIO_NUM, mode);
     const twai_filter_config_t filterConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-    UTIL_ERROR_CHECK_RETURN(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig), ESP_FAIL);
-    UTIL_ERROR_CHECK_RETURN(twai_start(), ESP_FAIL);
+    ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
+    ESP_ERROR_CHECK(twai_start());
 
     xQueueSendToBack(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
 
