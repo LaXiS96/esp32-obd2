@@ -1,5 +1,7 @@
 #include "uart.h"
 
+#include "message.h"
+
 #include <string.h>
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -8,16 +10,6 @@
 static const char *TAG = "UART";
 
 static QueueHandle_t uartEventQueue;
-
-uart_message_t uartNewMessage(uint8_t *data, size_t length)
-{
-    uart_message_t msg = {
-        .length = length,
-        .data = malloc(length),
-    };
-    memcpy(msg.data, data, length);
-    return msg;
-}
 
 static void uartEventTask(void *arg)
 {
@@ -35,7 +27,7 @@ static void uartEventTask(void *arg)
                 uart_read_bytes(UART_PORT_NUM, buf, event.size, portMAX_DELAY);
                 // ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
 
-                uart_message_t msg = uartNewMessage(buf, event.size);
+                message_t msg = newMessage(buf, event.size);
                 if (xQueueSend(uartRxQueue, &msg, 0) == errQUEUE_FULL)
                     ESP_LOGE(TAG, "uartRxQueue FULL");
                 break;
@@ -70,13 +62,13 @@ static void uartEventTask(void *arg)
 
 static void uartTxTask(void *arg)
 {
-    uart_message_t msg;
+    message_t msg;
 
     while (1)
     {
         xQueueReceive(uartTxQueue, &msg, portMAX_DELAY);
-
         uart_write_bytes(UART_PORT_NUM, (const char *)msg.data, msg.length);
+        free(msg.data);
     }
 }
 
@@ -94,8 +86,8 @@ void uartInit(void)
     ESP_ERROR_CHECK(uart_param_config(UART_PORT_NUM, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(UART_PORT_NUM, UART_TXD_GPIO_NUM, UART_RXD_GPIO_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
-    uartRxQueue = xQueueCreate(UART_QUEUES_LEN, sizeof(uart_message_t));
-    uartTxQueue = xQueueCreate(UART_QUEUES_LEN, sizeof(uart_message_t));
+    uartRxQueue = xQueueCreate(UART_QUEUES_LEN, sizeof(message_t));
+    uartTxQueue = xQueueCreate(UART_QUEUES_LEN, sizeof(message_t));
 
     xTaskCreate(uartEventTask, "uartEvent", 2048, NULL, UART_EVENT_TASK_PRIO, NULL);
     xTaskCreate(uartTxTask, "uartTx", 2048, NULL, UART_TX_TASK_PRIO, NULL);

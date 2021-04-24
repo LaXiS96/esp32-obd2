@@ -22,7 +22,7 @@ void app_main(void)
     uartInit();
     // btInit();
     // wifiInit();
-    // canInit();
-    // slcanInit();
+    canInit();
+    slcanInit(uartRxQueue, uartTxQueue);
     // sdInit();
 }

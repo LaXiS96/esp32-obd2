@@ -5,9 +5,11 @@
 
 #include "slcan.h"
 
+#include "message.h"
 #include "can.h"
 
 #include <string.h>
+#include "FreeRTOS/task.h"
 #include "esp_log.h"
 
 #define SLCAN_TX_TASK_PRIO 1 // TODO
@@ -30,6 +32,9 @@ static const uint8_t ASCII2HEX_LUT[] = {
 };
 // clang-format on
 
+static QueueHandle_t *_rxQueue;
+static QueueHandle_t *_txQueue;
+
 static twai_timing_config_t slcanTimingConfig50K = TWAI_TIMING_CONFIG_50KBITS();
 static twai_timing_config_t slcanTimingConfig100K = TWAI_TIMING_CONFIG_100KBITS();
 static twai_timing_config_t slcanTimingConfig125K = TWAI_TIMING_CONFIG_125KBITS();
@@ -39,6 +44,13 @@ static twai_timing_config_t slcanTimingConfig800K = TWAI_TIMING_CONFIG_800KBITS(
 static twai_timing_config_t slcanTimingConfig1M = TWAI_TIMING_CONFIG_1MBITS();
 
 static twai_timing_config_t *slcanChosenTimingConfig;
+
+static void slcanTxMessage(char *data, size_t len)
+{
+    message_t msg = newMessage((uint8_t *)data, len);
+    if (xQueueSend(_txQueue, &msg, 0) == errQUEUE_FULL)
+        ESP_LOGE(TAG, "_txQueue FULL");
+}
 
 /**
  * Send an OK response (0x0D), with optional data
@@ -52,12 +64,12 @@ static void slcanRespondOk(char *data)
         snprintf(buf, sizeof(buf), "%s\r", data);
 
         ESP_LOGI(TAG, "respond ok data=\"%s\"", data);
-        uart_write_bytes(SLCAN_UART_NUM, buf, strlen(buf));
+        slcanTxMessage(buf, strlen(buf));
     }
     else
     {
         ESP_LOGI(TAG, "respond ok");
-        uart_write_bytes(SLCAN_UART_NUM, "\r", 1);
+        slcanTxMessage("\r", 1);
     }
 }
 
@@ -67,7 +79,7 @@ static void slcanRespondOk(char *data)
 static void slcanRespondError(void)
 {
     ESP_LOGI(TAG, "respond error");
-    uart_write_bytes(SLCAN_UART_NUM, "\a", 1);
+    slcanTxMessage("\a", 1);
 }
 
 /**
@@ -350,64 +362,62 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
  */
 static void slcanRxTask(void *arg)
 {
+    message_t msg;
     uint8_t bufRemainder[SLCAN_MAX_CMD_LEN];
     size_t bufRemainderLen = 0;
 
     while (1)
     {
-        uint8_t buf[SLCAN_MAX_CMD_LEN]; // Received data buffer
-        size_t bufLen = 0;              // Received data length
+        xQueueReceive(_rxQueue, &msg, portMAX_DELAY);
 
-        // Read from UART every 100ms and split commands by CR
-        bufLen = uart_read_bytes(SLCAN_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(100));
-        if (bufLen > 0)
+        uint8_t *pCmdStart = msg.data;                          // Command start position
+        uint8_t *pCmdEnd = memchr(pCmdStart, '\r', msg.length); // Command end position (CR character)
+        size_t cmdLen = 0;                                      // Command length
+
+        // TODO
+        // if (bufLen == sizeof(buf) && pCmdEnd == NULL)
+        // { // TODO error: command longer than max command length, not permitted
+        //     ESP_LOGE(TAG, "RX command buffer overrun");
+        //     slcanRespondError();
+        //     continue;
+        // }
+
+        while (pCmdEnd != NULL)
         {
-            uint8_t *pCmdStart = buf;                           // Current command start position
-            uint8_t *pCmdEnd = memchr(pCmdStart, '\r', bufLen); // Current command end position (CR character)
-            size_t cmdLen = 0;                                  // Current command length
+            cmdLen = pCmdEnd - pCmdStart + 1;
 
-            if (bufLen == sizeof(buf) && pCmdEnd == NULL)
-            { // TODO error: command longer than max command length, not permitted
-                ESP_LOGE(TAG, "RX command buffer overrun");
-                slcanRespondError();
-                continue;
-            }
-
-            while (pCmdEnd != NULL)
+            if (bufRemainderLen > 0)
             {
-                cmdLen = pCmdEnd - pCmdStart + 1;
+                size_t tmpLen = bufRemainderLen + cmdLen;
 
-                if (bufRemainderLen > 0)
-                {
-                    size_t tmpLen = bufRemainderLen + cmdLen;
+                // Concatenate remainder with current command and parse it
+                uint8_t *tmpBuf = malloc(tmpLen);
+                memcpy(tmpBuf, bufRemainder, bufRemainderLen);
+                memcpy(tmpBuf + bufRemainderLen, pCmdStart, cmdLen);
 
-                    // Concatenate remainder with current command and parse it
-                    uint8_t *tmpBuf = malloc(tmpLen);
-                    memcpy(tmpBuf, bufRemainder, bufRemainderLen);
-                    memcpy(tmpBuf + bufRemainderLen, pCmdStart, cmdLen);
+                slcanExecuteCommand(tmpBuf, tmpLen);
 
-                    slcanExecuteCommand(tmpBuf, tmpLen);
-
-                    free(tmpBuf);
-                    bufRemainderLen = 0;
-                }
-                else
-                {
-                    slcanExecuteCommand(pCmdStart, cmdLen);
-                }
-
-                pCmdStart = pCmdEnd + 1;
-                bufLen -= cmdLen;
-                pCmdEnd = memchr(pCmdStart, '\r', bufLen);
+                free(tmpBuf);
+                bufRemainderLen = 0;
             }
-
-            // If buffer does not end with CR, save remaining characters for next iteration
-            if (bufLen > 0)
+            else
             {
-                memcpy(bufRemainder, pCmdStart, bufLen);
-                bufRemainderLen += bufLen;
+                slcanExecuteCommand(pCmdStart, cmdLen);
             }
+
+            pCmdStart = pCmdEnd + 1;
+            msg.length -= cmdLen;
+            pCmdEnd = memchr(pCmdStart, '\r', msg.length);
         }
+
+        // If buffer does not end with CR, save remaining characters for next iteration
+        if (msg.length > 0)
+        {
+            memcpy(bufRemainder, pCmdStart, msg.length);
+            bufRemainderLen += msg.length;
+        }
+
+        free(msg.data);
     }
 }
 
@@ -423,12 +433,15 @@ static void slcanFramesTxTask(void *arg)
 
         char out[32];
         slcanFormatFrame(&msg, out);
-        uart_write_bytes(SLCAN_UART_NUM, out, strlen(out));
+        slcanTxMessage(out, strlen(out));
     }
 }
 
-void slcanInit(void)
+void slcanInit(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
 {
+    _rxQueue = rxQueue;
+    _txQueue = txQueue;
+
     xTaskCreate(slcanRxTask, "SLCAN RX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
     xTaskCreate(slcanFramesTxTask, "SLCAN FRM TX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
 
