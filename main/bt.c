@@ -1,7 +1,5 @@
 #include "bt.h"
 
-#include "util.h"
-
 #include "esp_log.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"

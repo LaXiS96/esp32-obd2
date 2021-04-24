@@ -1,7 +1,5 @@
 #include "can.h"
 
-#include "util.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -31,7 +29,7 @@ static void canRxTask(void *arg)
 
             // Try receiving for 100ms max
             if (twai_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
-                xQueueSendToBack(canRxQueue, &msg, portMAX_DELAY);
+                xQueueSend(canRxQueue, &msg, portMAX_DELAY);
         }
     }
 }
@@ -69,7 +67,7 @@ esp_err_t canOpen(twai_mode_t mode, twai_timing_config_t *timingConfig)
     ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
     ESP_ERROR_CHECK(twai_start());
 
-    xQueueSendToBack(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
+    xQueueSend(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
 
     ESP_LOGI(TAG, "opened");
     return ESP_OK;

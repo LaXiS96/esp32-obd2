@@ -5,19 +5,11 @@
 
 #include "slcan.h"
 
-#include "util.h"
 #include "can.h"
 
 #include <string.h>
 #include "esp_log.h"
-#include "driver/gpio.h"
-#include "driver/uart.h"
 
-#define SLCAN_UART_NUM UART_NUM_0  // ESP console log moved to UART1 via menuconfig
-#define SLCAN_UART_TXD_GPIO_NUM 1  // UART2: GPIO_NUM_17
-#define SLCAN_UART_RXD_GPIO_NUM 3  // UART2: GPIO_NUM_16
-#define SLCAN_UART_BAUDRATE 921600 // default CP2102 config also supports 1200000 and 1500000
-#define SLCAN_UART_BUF_SIZE 1024
 #define SLCAN_TX_TASK_PRIO 1 // TODO
 
 #define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788\r"))
@@ -437,17 +429,6 @@ static void slcanFramesTxTask(void *arg)
 
 void slcanInit(void)
 {
-    uart_config_t uart_config = {
-        .baud_rate = SLCAN_UART_BAUDRATE,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-    };
-    ESP_ERROR_CHECK(uart_param_config(SLCAN_UART_NUM, &uart_config));
-    ESP_ERROR_CHECK(uart_set_pin(SLCAN_UART_NUM, SLCAN_UART_TXD_GPIO_NUM, SLCAN_UART_RXD_GPIO_NUM, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-    ESP_ERROR_CHECK(uart_driver_install(SLCAN_UART_NUM, SLCAN_UART_BUF_SIZE * 2, SLCAN_UART_BUF_SIZE * 2, 0, NULL, 0));
-
     xTaskCreate(slcanRxTask, "SLCAN RX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
     xTaskCreate(slcanFramesTxTask, "SLCAN FRM TX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
 
