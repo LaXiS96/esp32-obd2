@@ -92,5 +92,5 @@ void uartInit(void)
     xTaskCreate(uartEventTask, "uartEvent", 2048, NULL, UART_EVENT_TASK_PRIO, NULL);
     xTaskCreate(uartTxTask, "uartTx", 2048, NULL, UART_TX_TASK_PRIO, NULL);
 
-    ESP_LOGI(TAG, "init completed");
+    ESP_LOGI(TAG, "initialized");
 }

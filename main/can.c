@@ -1,14 +1,12 @@
 #include "can.h"
 
+#include "config.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
 #include "driver/twai.h"
-
-#define CAN_TX_GPIO_NUM GPIO_NUM_21
-#define CAN_RX_GPIO_NUM GPIO_NUM_22
-#define CAN_RX_TASK_PRIO 1
 
 static const char *TAG = "CAN";
 
@@ -41,7 +39,7 @@ void canInit(void)
 
     xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CAN_RX_TASK_PRIO, NULL);
 
-    ESP_LOGI(TAG, "init completed");
+    ESP_LOGI(TAG, "initialized");
 }
 
 bool canIsOpen(void)
@@ -93,5 +91,9 @@ esp_err_t canTransmit(twai_message_t *msg)
     if (!canIsOpen())
         return ESP_ERR_INVALID_STATE;
 
-    return twai_transmit(msg, pdMS_TO_TICKS(100));
+    esp_err_t ret = twai_transmit(msg, pdMS_TO_TICKS(100));
+    if (ret != ESP_OK)
+        ESP_LOGE(TAG, "canTransmit: twai_transmit returned %d", ret);
+
+    return ret;
 }

@@ -5,14 +5,13 @@
 
 #include "slcan.h"
 
+#include "config.h"
 #include "message.h"
 #include "can.h"
 
 #include <string.h>
 #include "FreeRTOS/task.h"
 #include "esp_log.h"
-
-#define SLCAN_TX_TASK_PRIO 1 // TODO
 
 #define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788\r"))
 
@@ -83,7 +82,7 @@ static void slcanRespondError(void)
 }
 
 /**
- * Format received CAN frame for UART output
+ * Format received CAN frame for SLCAN output
  * @param msg input frame
  * @param str formatted output string, must be at least TODO long
  */
@@ -205,7 +204,7 @@ static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
 /**
  * Parse received command and perform requested action
  */
-static void slcanExecuteCommand(uint8_t *buf, size_t len)
+static void slcanParseCommand(uint8_t *buf, size_t len)
 {
     ESP_LOGI(TAG, "command \"%.*s\"", len - 1, buf);
 
@@ -304,13 +303,19 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             twai_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
-                if (canTransmit(&frame))
+                if (canTransmit(&frame) == ESP_OK)
                     slcanRespondOk("z");
                 else
+                {
+                    ESP_LOGE(TAG, "canTransmit failed");
                     slcanRespondError();
+                }
             }
             else
+            {
+                ESP_LOGE(TAG, "slcanParseFrame failed");
                 slcanRespondError();
+            }
         }
         break;
     case 'T': // Send extended frame
@@ -322,13 +327,19 @@ static void slcanExecuteCommand(uint8_t *buf, size_t len)
             twai_message_t frame;
             if (slcanParseFrame(buf, len, &frame) == ESP_OK)
             {
-                if (canTransmit(&frame))
+                if (canTransmit(&frame) == ESP_OK)
                     slcanRespondOk("Z");
                 else
+                {
+                    ESP_LOGE(TAG, "canTransmit failed");
                     slcanRespondError();
+                }
             }
             else
+            {
+                ESP_LOGE(TAG, "slcanParseFrame failed");
                 slcanRespondError();
+            }
         }
         break;
     case 'F': // Read and clear status flags
@@ -369,6 +380,7 @@ static void slcanRxTask(void *arg)
     while (1)
     {
         xQueueReceive(_rxQueue, &msg, portMAX_DELAY);
+        // ESP_LOG_BUFFER_HEXDUMP(TAG, msg.data, msg.length, ESP_LOG_INFO);
 
         uint8_t *pCmdStart = msg.data;                          // Command start position
         uint8_t *pCmdEnd = memchr(pCmdStart, '\r', msg.length); // Command end position (CR character)
@@ -395,14 +407,14 @@ static void slcanRxTask(void *arg)
                 memcpy(tmpBuf, bufRemainder, bufRemainderLen);
                 memcpy(tmpBuf + bufRemainderLen, pCmdStart, cmdLen);
 
-                slcanExecuteCommand(tmpBuf, tmpLen);
+                slcanParseCommand(tmpBuf, tmpLen);
 
                 free(tmpBuf);
                 bufRemainderLen = 0;
             }
             else
             {
-                slcanExecuteCommand(pCmdStart, cmdLen);
+                slcanParseCommand(pCmdStart, cmdLen);
             }
 
             pCmdStart = pCmdEnd + 1;
@@ -413,7 +425,7 @@ static void slcanRxTask(void *arg)
         // If buffer does not end with CR, save remaining characters for next iteration
         if (msg.length > 0)
         {
-            memcpy(bufRemainder, pCmdStart, msg.length);
+            memcpy(bufRemainder + bufRemainderLen, pCmdStart, msg.length);
             bufRemainderLen += msg.length;
         }
 
@@ -424,7 +436,7 @@ static void slcanRxTask(void *arg)
 /**
  * Handle received CAN frames
  */
-static void slcanFramesTxTask(void *arg)
+static void slcanTxTask(void *arg)
 {
     while (1)
     {
@@ -442,8 +454,8 @@ void slcanInit(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
     _rxQueue = rxQueue;
     _txQueue = txQueue;
 
-    xTaskCreate(slcanRxTask, "SLCAN RX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
-    xTaskCreate(slcanFramesTxTask, "SLCAN FRM TX", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
+    xTaskCreate(slcanRxTask, "slcanRx", 2048, NULL, SLCAN_RX_TASK_PRIO, NULL);
+    xTaskCreate(slcanTxTask, "slcanTx", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
 
-    ESP_LOGI(TAG, "init completed");
+    ESP_LOGI(TAG, "initialized");
 }

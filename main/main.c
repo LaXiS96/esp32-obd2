@@ -19,10 +19,10 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    uartInit();
-    // btInit();
+    // uartInit();
+    btInit();
     // wifiInit();
     canInit();
-    slcanInit(uartRxQueue, uartTxQueue);
+    slcanInit(btRxQueue, btTxQueue);
     // sdInit();
 }

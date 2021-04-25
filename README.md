@@ -4,11 +4,16 @@ This project is work-in-progress and started as a tool to access the CAN buses o
 
 Development is done on an ESP32 DevKitC V4 board, mounting an ESP32-WROOM-32D module.
 
+Using [ESP-IDF v4.2](https://github.com/espressif/esp-idf).
+
 ## Features roadmap
 
 - ✔ CAN connection with vehicle
     - tested transceivers: SN65HVD230, MCP2551 (with 5V -> 3.3V RX voltage translation)
 - ✔ Linux SocketCAN compatibility with [`slcan` driver](https://github.com/torvalds/linux/blob/master/drivers/net/can/slcan.c)
+- ✔ Bluetooth
+    - `slcan` over Bluetooth Classic Serial Port Profile (SPP)
+    - pairing PIN is 1234 (Secure Simple Pairing is also supported but disabled)
 - ❔ logging to SD card
     - same file format as `candump`
 - ❔ socket communication over WiFi softAP

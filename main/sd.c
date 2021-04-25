@@ -38,4 +38,6 @@ void sdInit(void)
     // }
 
     // sdmmc_card_print_info(stdout, card);
+
+    ESP_LOGI(TAG, "initialized");
 }

@@ -51,5 +51,5 @@ void wifiInit(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "init completed SSID=\"%s\" password=\"%s\" channel=%d", WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL);
+    ESP_LOGI(TAG, "initialized SSID=\"%s\" password=\"%s\" channel=%d", WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL);
 }

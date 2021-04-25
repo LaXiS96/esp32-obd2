@@ -1,5 +1,7 @@
 #pragma once
 
+// TODO check task priorities
+
 #define UART_PORT_NUM UART_NUM_0     // ESP console log moved to UART1 via menuconfig
 #define UART_TXD_GPIO_NUM GPIO_NUM_1 // UART2: GPIO_NUM_17
 #define UART_RXD_GPIO_NUM GPIO_NUM_3 // UART2: GPIO_NUM_16
@@ -8,3 +10,13 @@
 #define UART_QUEUES_LEN 8
 #define UART_EVENT_TASK_PRIO 1
 #define UART_TX_TASK_PRIO 1
+
+#define BT_QUEUES_LENGTH 8
+#define BT_TX_TASK_PRIO 1
+
+#define CAN_TX_GPIO_NUM GPIO_NUM_21
+#define CAN_RX_GPIO_NUM GPIO_NUM_22
+#define CAN_RX_TASK_PRIO 1
+
+#define SLCAN_RX_TASK_PRIO 1
+#define SLCAN_TX_TASK_PRIO 1
