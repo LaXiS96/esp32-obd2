@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * Construct a message_t object.
+ * The `data` member must be freed after usage.
+ */
 message_t newMessage(uint8_t *data, size_t length)
 {
     message_t msg = {

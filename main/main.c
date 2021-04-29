@@ -8,6 +8,8 @@
 #include "slcan.h"
 #include "sd.h"
 
+// TODO capture FreeRTOS statistics and optimize task stack sizes, etc...
+
 void app_main(void)
 {
     // Initialize NVS

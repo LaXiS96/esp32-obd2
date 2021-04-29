@@ -13,7 +13,7 @@ Using [ESP-IDF v4.2](https://github.com/espressif/esp-idf).
 - ✔ Linux SocketCAN compatibility with [`slcan` driver](https://github.com/torvalds/linux/blob/master/drivers/net/can/slcan.c)
 - ✔ Bluetooth
     - `slcan` over Bluetooth Classic Serial Port Profile (SPP)
-    - pairing PIN is 1234 (Secure Simple Pairing is also supported but disabled)
+    - Secure Simple Pairing supported, otherwise pairing PIN is 0000
 - ❔ logging to SD card
     - same file format as `candump`
 - ❔ socket communication over WiFi softAP

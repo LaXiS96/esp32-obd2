@@ -13,7 +13,7 @@
 
 static const char *TAG = "BT";
 
-static uint32_t btCurrentHandle; // TODO better handling of the current connection
+static uint32_t btCurrentHandle = 0;
 
 static void btGapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
@@ -53,12 +53,8 @@ static void btGapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         }
         else
         {
-            ESP_LOGI(TAG, "Input pin code: 1234");
-            esp_bt_pin_code_t pin_code;
-            pin_code[0] = '1';
-            pin_code[1] = '2';
-            pin_code[2] = '3';
-            pin_code[3] = '4';
+            ESP_LOGI(TAG, "Input pin code: 0000");
+            esp_bt_pin_code_t pin_code = {0};
             esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code);
         }
         break;
@@ -115,6 +111,7 @@ static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
+        btCurrentHandle = 0;
         break;
     case ESP_SPP_START_EVT:
         ESP_LOGI(TAG, "ESP_SPP_START_EVT");
@@ -153,8 +150,13 @@ static void btTxTask(void *arg)
     while (1)
     {
         xQueueReceive(btTxQueue, &msg, portMAX_DELAY);
-        // TODO I recall reading that SPP max data length is 128
-        esp_spp_write(btCurrentHandle, msg.length, msg.data);
+
+        if (btCurrentHandle > 0)
+        {
+            // TODO I recall reading that SPP max data length is 128
+            esp_spp_write(btCurrentHandle, msg.length, msg.data);
+        }
+
         free(msg.data);
     }
 }
@@ -174,22 +176,19 @@ void btInit(void)
     ESP_ERROR_CHECK(esp_spp_init(ESP_SPP_MODE_CB));
 
 #if (CONFIG_BT_SSP_ENABLED == true)
-    /* Set default parameters for Secure Simple Pairing */
+    // Secure Simple Pairing
     esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;
     esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_IO;
     esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t));
 #endif
 
-    /*
-     * Set default parameters for Legacy Pairing
-     * Use variable pin, input pin code when pairing
-     */
+    // Legacy pairing
     esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_VARIABLE;
     esp_bt_pin_code_t pin_code;
     esp_bt_gap_set_pin(pin_type, 0, pin_code);
 
-    btRxQueue = xQueueCreate(BT_QUEUES_LENGTH, sizeof(message_t));
-    btTxQueue = xQueueCreate(BT_QUEUES_LENGTH, sizeof(message_t));
+    btRxQueue = xQueueCreate(BT_QUEUES_LEN, sizeof(message_t));
+    btTxQueue = xQueueCreate(BT_QUEUES_LEN, sizeof(message_t));
 
     xTaskCreate(btTxTask, "btTx", 2048, NULL, BT_TX_TASK_PRIO, NULL);
 

@@ -418,6 +418,14 @@ static void slcanRxTask(void *arg)
             }
 
             pCmdStart = pCmdEnd + 1;
+
+            // Discard LF after CR
+            if (*pCmdStart == '\n')
+            {
+                pCmdStart++;
+                cmdLen++;
+            }
+
             msg.length -= cmdLen;
             pCmdEnd = memchr(pCmdStart, '\r', msg.length);
         }
