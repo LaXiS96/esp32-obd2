@@ -1,7 +1,7 @@
-/**
- * Implementation of LAWICEL Serial Line CAN protocol (http://www.can232.com/docs/canusb_manual.pdf)
- * Scope is to be compatible with Linux SocketCAN slcan driver, to allow usage of can-utils
- */
+/*
+Implementation of LAWICEL Serial Line CAN protocol (http://www.can232.com/docs/canusb_manual.pdf)
+Target is to be compatible with Linux SocketCAN slcan driver, to allow usage of can-utils
+*/
 
 #include "slcan.h"
 
@@ -10,19 +10,23 @@
 #include "can.h"
 
 #include <string.h>
-#include "FreeRTOS/task.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 
+#define SLCAN_MIN_STD_CMD_LEN (strlen("t1FF0\r"))
+#define SLCAN_MIN_EXT_CMD_LEN (strlen("T1FFFFFFF0\r"))
 #define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788\r"))
 
 static const char *TAG = "SLCAN";
 
-/** Hex to ASCII conversion function */
+/// @brief Hex to ASCII conversion function
 #define HEX2ASCII(x) HEX2ASCII_LUT[(x)]
 static const char *HEX2ASCII_LUT = "0123456789ABCDEF";
 
 // clang-format off
-/** ASCII to hex conversion function */
+
+/// @brief ASCII to hex conversion function
 #define ASCII2HEX(x) ASCII2HEX_LUT[(x) - 0x30]
 static const uint8_t ASCII2HEX_LUT[] = {
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
@@ -31,31 +35,21 @@ static const uint8_t ASCII2HEX_LUT[] = {
 };
 // clang-format on
 
-static QueueHandle_t *_rxQueue;
-static QueueHandle_t *_txQueue;
+static QueueHandle_t *_serialRxQueue;
+static QueueHandle_t *_serialTxQueue;
 
-static twai_timing_config_t slcanTimingConfig50K = TWAI_TIMING_CONFIG_50KBITS();
-static twai_timing_config_t slcanTimingConfig100K = TWAI_TIMING_CONFIG_100KBITS();
-static twai_timing_config_t slcanTimingConfig125K = TWAI_TIMING_CONFIG_125KBITS();
-static twai_timing_config_t slcanTimingConfig250K = TWAI_TIMING_CONFIG_250KBITS();
-static twai_timing_config_t slcanTimingConfig500K = TWAI_TIMING_CONFIG_500KBITS();
-static twai_timing_config_t slcanTimingConfig800K = TWAI_TIMING_CONFIG_800KBITS();
-static twai_timing_config_t slcanTimingConfig1M = TWAI_TIMING_CONFIG_1MBITS();
+static twai_timing_config_t timingConfig = {};
 
-static twai_timing_config_t *slcanChosenTimingConfig;
-
-static void slcanTxMessage(char *data, size_t len)
+static void sendSerialMessage(char *data, size_t len)
 {
-    message_t msg = newMessage((uint8_t *)data, len);
-    if (xQueueSend(_txQueue, &msg, 0) == errQUEUE_FULL)
-        ESP_LOGE(TAG, "_txQueue FULL");
+    message_t msg = message_new((uint8_t *)data, len);
+    if (xQueueSend(*_serialTxQueue, &msg, 0) == errQUEUE_FULL)
+        ESP_LOGE(TAG, "_serialTxQueue full");
 }
 
-/**
- * Send an OK response (0x0D), with optional data
- * @param data string, can be NULL
- */
-static void slcanRespondOk(char *data)
+/// @brief Send an OK response (0x0D), with optional data
+/// @param data reply string, can be NULL
+static void sendOkResponse(char *data)
 {
     if (data != NULL)
     {
@@ -63,30 +57,26 @@ static void slcanRespondOk(char *data)
         snprintf(buf, sizeof(buf), "%s\r", data);
 
         ESP_LOGI(TAG, "respond ok data=\"%s\"", data);
-        slcanTxMessage(buf, strlen(buf));
+        sendSerialMessage(buf, strlen(buf));
     }
     else
     {
         ESP_LOGI(TAG, "respond ok");
-        slcanTxMessage("\r", 1);
+        sendSerialMessage("\r", 1);
     }
 }
 
-/**
- * Send an error response (0x07)
- */
-static void slcanRespondError(void)
+/// @brief Send an error response (0x07)
+static void sendErrorResponse(void)
 {
     ESP_LOGI(TAG, "respond error");
-    slcanTxMessage("\a", 1);
+    sendSerialMessage("\a", 1);
 }
 
-/**
- * Format received CAN frame for SLCAN output
- * @param msg input frame
- * @param str formatted output string, must be at least TODO long
- */
-static void slcanFormatFrame(twai_message_t *msg, char *str)
+/// @brief Format received CAN frame for SLCAN output
+/// @param msg input frame
+/// @param str formatted output string, must be at least TODO long
+static void formatFrame(twai_message_t *msg, char *str)
 {
     if (msg->extd)
     {
@@ -132,19 +122,15 @@ static void slcanFormatFrame(twai_message_t *msg, char *str)
     *str++ = '\0';
 }
 
-/**
- * Parse t, T, r, R frame commands
- * @param str input command buffer
- * @param len input command buffer length
- * @param msg output parsed CAN frame
- */
-static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
+/// @brief Parse t, T, r, R frame commands
+/// @param str input command buffer
+/// @param len input command buffer length
+/// @param msg output parsed CAN frame
+static esp_err_t parseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
 {
     if (len == 0)
         return ESP_FAIL;
 
-    const uint8_t minStdLen = strlen("t1FF0\r");
-    const uint8_t minExtLen = strlen("T1FFFFFFF0\r");
     uint8_t *pBuf = buf;
 
     msg->flags = 0;
@@ -156,7 +142,7 @@ static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
     msg->identifier = 0;
     if (msg->extd)
     {
-        if (len < minExtLen)
+        if (len < SLCAN_MIN_EXT_CMD_LEN)
             return ESP_FAIL;
 
         msg->identifier |= ASCII2HEX(*pBuf++) << 28;
@@ -170,12 +156,12 @@ static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
 
         msg->data_length_code = ASCII2HEX(*pBuf++);
 
-        if (len < minExtLen + msg->data_length_code * 2)
+        if (len < SLCAN_MIN_EXT_CMD_LEN + msg->data_length_code * 2)
             return ESP_FAIL;
     }
     else
     {
-        if (len < minStdLen)
+        if (len < SLCAN_MIN_STD_CMD_LEN)
             return ESP_FAIL;
 
         msg->identifier |= ASCII2HEX(*pBuf++) << 8;
@@ -184,7 +170,7 @@ static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
 
         msg->data_length_code = ASCII2HEX(*pBuf++);
 
-        if (len < minStdLen + msg->data_length_code * 2)
+        if (len < SLCAN_MIN_STD_CMD_LEN + msg->data_length_code * 2)
             return ESP_FAIL;
     }
 
@@ -201,24 +187,22 @@ static esp_err_t slcanParseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
     return ESP_OK;
 }
 
-/**
- * Parse received command and perform requested action
- */
-static void slcanParseCommand(uint8_t *buf, size_t len)
+/// @brief Parse received command and perform requested action
+static void parseCommand(uint8_t *buf, size_t len)
 {
     ESP_LOGI(TAG, "command \"%.*s\"", len - 1, buf);
 
     if (len == 0)
     {
-        slcanRespondError();
+        sendErrorResponse();
         return;
     }
 
     switch (buf[0])
     {
     case 'S': // Set CAN standard bitrate
-        if (canIsOpen())
-            slcanRespondError();
+        if (can_isOpen())
+            sendErrorResponse();
         else
         {
             switch (buf[1])
@@ -226,132 +210,132 @@ static void slcanParseCommand(uint8_t *buf, size_t len)
             case '0':
             case '1':
                 // 10kbps and 20kbps unsupported
-                slcanRespondError();
+                sendErrorResponse();
                 break;
             case '2':
-                slcanChosenTimingConfig = &slcanTimingConfig50K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_50KBITS();
+                sendOkResponse(NULL);
                 break;
             case '3':
-                slcanChosenTimingConfig = &slcanTimingConfig100K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_100KBITS();
+                sendOkResponse(NULL);
                 break;
             case '4':
-                slcanChosenTimingConfig = &slcanTimingConfig125K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_125KBITS();
+                sendOkResponse(NULL);
                 break;
             case '5':
-                slcanChosenTimingConfig = &slcanTimingConfig250K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_250KBITS();
+                sendOkResponse(NULL);
                 break;
             case '6':
-                slcanChosenTimingConfig = &slcanTimingConfig500K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_500KBITS();
+                sendOkResponse(NULL);
                 break;
             case '7':
-                slcanChosenTimingConfig = &slcanTimingConfig800K;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_800KBITS();
+                sendOkResponse(NULL);
                 break;
             case '8':
-                slcanChosenTimingConfig = &slcanTimingConfig1M;
-                slcanRespondOk(NULL);
+                timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_1MBITS();
+                sendOkResponse(NULL);
                 break;
             default:
-                slcanRespondError();
+                sendErrorResponse();
             }
         }
         break;
     case 'O': // Open CAN channel
-        if (canIsOpen() || slcanChosenTimingConfig == NULL)
-            slcanRespondError();
+        if (can_isOpen() || timingConfig.brp == 0)
+            sendErrorResponse();
         else
         {
-            if (canOpen(TWAI_MODE_NORMAL, slcanChosenTimingConfig) == ESP_OK)
-                slcanRespondOk(NULL);
+            if (can_open(TWAI_MODE_NORMAL, &timingConfig) == ESP_OK)
+                sendOkResponse(NULL);
             else
-                slcanRespondError();
+                sendErrorResponse();
         }
         break;
     case 'L': // Open CAN channel in listen-only mode
-        if (canIsOpen() || slcanChosenTimingConfig == NULL)
-            slcanRespondError();
+        if (can_isOpen() || timingConfig.brp == 0)
+            sendErrorResponse();
         else
         {
-            if (canOpen(TWAI_MODE_LISTEN_ONLY, slcanChosenTimingConfig) == ESP_OK)
-                slcanRespondOk(NULL);
+            if (can_open(TWAI_MODE_LISTEN_ONLY, &timingConfig) == ESP_OK)
+                sendOkResponse(NULL);
             else
-                slcanRespondError();
+                sendErrorResponse();
         }
         break;
     case 'C': // Close CAN channel
-        if (!canIsOpen())
-            slcanRespondError();
+        if (!can_isOpen())
+            sendErrorResponse();
         else
         {
-            if (canClose() == ESP_OK)
-                slcanRespondOk(NULL);
+            if (can_close() == ESP_OK)
+                sendOkResponse(NULL);
             else
-                slcanRespondError();
+                sendErrorResponse();
         }
         break;
     case 't': // Send standard frame
     case 'r': // Send standard remote frame
-        if (!canIsOpen() || canGetMode() != TWAI_MODE_NORMAL)
-            slcanRespondError();
+        if (!can_isOpen() || can_getMode() != TWAI_MODE_NORMAL)
+            sendErrorResponse();
         else
         {
             twai_message_t frame;
-            if (slcanParseFrame(buf, len, &frame) == ESP_OK)
+            if (parseFrame(buf, len, &frame) == ESP_OK)
             {
-                if (canTransmit(&frame) == ESP_OK)
-                    slcanRespondOk("z");
+                if (can_transmit(&frame) == ESP_OK)
+                    sendOkResponse("z");
                 else
                 {
-                    ESP_LOGE(TAG, "canTransmit failed");
-                    slcanRespondError();
+                    ESP_LOGE(TAG, "can_transmit failed");
+                    sendErrorResponse();
                 }
             }
             else
             {
-                ESP_LOGE(TAG, "slcanParseFrame failed");
-                slcanRespondError();
+                ESP_LOGE(TAG, "parseFrame failed");
+                sendErrorResponse();
             }
         }
         break;
     case 'T': // Send extended frame
     case 'R': // Send extended remote frame
-        if (!canIsOpen() || canGetMode() != TWAI_MODE_NORMAL)
-            slcanRespondError();
+        if (!can_isOpen() || can_getMode() != TWAI_MODE_NORMAL)
+            sendErrorResponse();
         else
         {
             twai_message_t frame;
-            if (slcanParseFrame(buf, len, &frame) == ESP_OK)
+            if (parseFrame(buf, len, &frame) == ESP_OK)
             {
-                if (canTransmit(&frame) == ESP_OK)
-                    slcanRespondOk("Z");
+                if (can_transmit(&frame) == ESP_OK)
+                    sendOkResponse("Z");
                 else
                 {
-                    ESP_LOGE(TAG, "canTransmit failed");
-                    slcanRespondError();
+                    ESP_LOGE(TAG, "can_transmit failed");
+                    sendErrorResponse();
                 }
             }
             else
             {
-                ESP_LOGE(TAG, "slcanParseFrame failed");
-                slcanRespondError();
+                ESP_LOGE(TAG, "parseFrame failed");
+                sendErrorResponse();
             }
         }
         break;
     case 'F': // Read and clear status flags
-        if (!canIsOpen())
-            slcanRespondError();
+        if (!can_isOpen())
+            sendErrorResponse();
         else
         {
             // TODO
         }
         break;
     case 'V': // Query adapter version
-        slcanRespondOk("V0000");
+        sendOkResponse("V0000");
         break;
     case 'N': // Query adapter serial number (uses last 2 bytes of base MAC address)
     {
@@ -360,18 +344,16 @@ static void slcanParseCommand(uint8_t *buf, size_t len)
         char sn[6];
         snprintf(sn, sizeof(sn), "N%.2X%.2X", mac[4], mac[5]);
 
-        slcanRespondOk(sn);
+        sendOkResponse(sn);
         break;
     }
     default:
-        slcanRespondError();
+        sendErrorResponse();
     }
 }
 
-/**
- * Handle received SLCAN commands
- */
-static void slcanRxTask(void *arg)
+/// @brief Handle received SLCAN commands
+static void serialRxTask(void *arg)
 {
     message_t msg;
     uint8_t bufRemainder[SLCAN_MAX_CMD_LEN];
@@ -379,7 +361,7 @@ static void slcanRxTask(void *arg)
 
     while (1)
     {
-        xQueueReceive(_rxQueue, &msg, portMAX_DELAY);
+        xQueueReceive(*_serialRxQueue, &msg, portMAX_DELAY);
         // ESP_LOG_BUFFER_HEXDUMP(TAG, msg.data, msg.length, ESP_LOG_INFO);
 
         uint8_t *pCmdStart = msg.data;                          // Command start position
@@ -390,7 +372,7 @@ static void slcanRxTask(void *arg)
         // if (bufLen == sizeof(buf) && pCmdEnd == NULL)
         // { // TODO error: command longer than max command length, not permitted
         //     ESP_LOGE(TAG, "RX command buffer overrun");
-        //     slcanRespondError();
+        //     sendErrorResponse();
         //     continue;
         // }
 
@@ -407,14 +389,14 @@ static void slcanRxTask(void *arg)
                 memcpy(tmpBuf, bufRemainder, bufRemainderLen);
                 memcpy(tmpBuf + bufRemainderLen, pCmdStart, cmdLen);
 
-                slcanParseCommand(tmpBuf, tmpLen);
+                parseCommand(tmpBuf, tmpLen);
 
                 free(tmpBuf);
                 bufRemainderLen = 0;
             }
             else
             {
-                slcanParseCommand(pCmdStart, cmdLen);
+                parseCommand(pCmdStart, cmdLen);
             }
 
             pCmdStart = pCmdEnd + 1;
@@ -437,33 +419,31 @@ static void slcanRxTask(void *arg)
             bufRemainderLen += msg.length;
         }
 
-        free(msg.data);
+        message_free(&msg);
     }
 }
 
-/**
- * Handle received CAN frames
- */
-static void slcanTxTask(void *arg)
+/// @brief Handle received CAN frames
+static void canRxTask(void *arg)
 {
     while (1)
     {
         twai_message_t msg;
-        xQueueReceive(canRxQueue, &msg, portMAX_DELAY);
+        xQueueReceive(can_rxQueue, &msg, portMAX_DELAY);
 
         char out[32];
-        slcanFormatFrame(&msg, out);
-        slcanTxMessage(out, strlen(out));
+        formatFrame(&msg, out);
+        sendSerialMessage(out, strlen(out));
     }
 }
 
-void slcanInit(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
+void slcan_init(QueueHandle_t *serialRxQueue, QueueHandle_t *serialTxQueue)
 {
-    _rxQueue = rxQueue;
-    _txQueue = txQueue;
+    _serialRxQueue = serialRxQueue;
+    _serialTxQueue = serialTxQueue;
 
-    xTaskCreate(slcanRxTask, "slcanRx", 2048, NULL, SLCAN_RX_TASK_PRIO, NULL);
-    xTaskCreate(slcanTxTask, "slcanTx", 2048, NULL, SLCAN_TX_TASK_PRIO, NULL);
+    xTaskCreate(serialRxTask, "slcan serialRx", 2048, NULL, CONFIG_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
+    xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_SLCAN_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

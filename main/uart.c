@@ -27,7 +27,7 @@ static void uartEventTask(void *arg)
                 uart_read_bytes(UART_PORT_NUM, buf, event.size, portMAX_DELAY);
                 // ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
 
-                message_t msg = newMessage(buf, event.size);
+                message_t msg = message_new(buf, event.size);
                 if (xQueueSend(uartRxQueue, &msg, 0) == errQUEUE_FULL)
                     ESP_LOGE(TAG, "uartRxQueue FULL");
                 break;
@@ -68,7 +68,7 @@ static void uartTxTask(void *arg)
     {
         xQueueReceive(uartTxQueue, &msg, portMAX_DELAY);
         uart_write_bytes(UART_PORT_NUM, (const char *)msg.data, msg.length);
-        free(msg.data);
+        message_free(&msg);
     }
 }
 

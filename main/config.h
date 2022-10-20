@@ -1,5 +1,7 @@
 #pragma once
 
+// TODO convert config.h to Kconfig for each component
+
 // TODO check task priorities
 
 #define UART_PORT_NUM UART_NUM_0 // ESP console moved from UART0 to UART1 via menuconfig (sdkconfig)
@@ -10,13 +12,3 @@
 #define UART_QUEUES_LEN 8
 #define UART_EVENT_TASK_PRIO 1
 #define UART_TX_TASK_PRIO 1
-
-#define BT_QUEUES_LEN 8
-#define BT_TX_TASK_PRIO 1
-
-#define CAN_TX_GPIO_NUM GPIO_NUM_21
-#define CAN_RX_GPIO_NUM GPIO_NUM_22
-#define CAN_RX_TASK_PRIO 1
-
-#define SLCAN_RX_TASK_PRIO 1
-#define SLCAN_TX_TASK_PRIO 1

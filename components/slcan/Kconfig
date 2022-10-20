@@ -1,0 +1,11 @@
+menu "SLCAN"
+
+    config SLCAN_SERIAL_RX_TASK_PRIO
+        int "SLCAN serial RX task priority"
+        default 1
+
+    config SLCAN_CAN_RX_TASK_PRIO
+        int "SLCAN CAN RX task priority"
+        default 1
+
+endmenu

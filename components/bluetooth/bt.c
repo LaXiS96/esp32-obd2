@@ -1,9 +1,9 @@
 #include "bt.h"
 
-#include "config.h"
 #include "message.h"
 
-#include "FreeRTOS/task.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -13,9 +13,9 @@
 
 static const char *TAG = "BT";
 
-static uint32_t btCurrentHandle = 0;
+static uint32_t currentHandle = 0;
 
-static void btGapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
+static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
     switch (event)
     {
@@ -44,32 +44,17 @@ static void btGapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         }
         break;
     case ESP_BT_GAP_PIN_REQ_EVT:
-        ESP_LOGI(TAG, "ESP_BT_GAP_PIN_REQ_EVT min_16_digit:%d", param->pin_req.min_16_digit);
-        if (param->pin_req.min_16_digit)
-        {
-            ESP_LOGI(TAG, "Input pin code: 0000 0000 0000 0000");
-            esp_bt_pin_code_t pin_code = {0};
-            esp_bt_gap_pin_reply(param->pin_req.bda, true, 16, pin_code);
-        }
-        else
-        {
-            ESP_LOGI(TAG, "Input pin code: 0000");
-            esp_bt_pin_code_t pin_code = {0};
-            esp_bt_gap_pin_reply(param->pin_req.bda, true, 4, pin_code);
-        }
+        ESP_LOGI(TAG, "ESP_BT_GAP_PIN_REQ_EVT");
         break;
-#if (CONFIG_BT_SSP_ENABLED == true)
     case ESP_BT_GAP_CFM_REQ_EVT:
-        ESP_LOGI(TAG, "ESP_BT_GAP_CFM_REQ_EVT Please compare the numeric value: %d", param->cfm_req.num_val);
-        esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+        ESP_LOGI(TAG, "ESP_BT_GAP_CFM_REQ_EVT");
         break;
     case ESP_BT_GAP_KEY_NOTIF_EVT:
-        ESP_LOGI(TAG, "ESP_BT_GAP_KEY_NOTIF_EVT passkey:%d", param->key_notif.passkey);
+        ESP_LOGI(TAG, "ESP_BT_GAP_KEY_NOTIF_EVT");
         break;
     case ESP_BT_GAP_KEY_REQ_EVT:
-        ESP_LOGI(TAG, "ESP_BT_GAP_KEY_REQ_EVT Please enter passkey!");
+        ESP_LOGI(TAG, "ESP_BT_GAP_KEY_REQ_EVT");
         break;
-#endif
     case ESP_BT_GAP_READ_RSSI_DELTA_EVT:
         ESP_LOGI(TAG, "ESP_BT_GAP_READ_RSSI_DELTA_EVT");
         break;
@@ -90,7 +75,7 @@ static void btGapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
     }
 }
 
-static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
+static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
     switch (event)
     {
@@ -111,7 +96,7 @@ static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
-        btCurrentHandle = 0;
+        currentHandle = 0;
         break;
     case ESP_SPP_START_EVT:
         ESP_LOGI(TAG, "ESP_SPP_START_EVT");
@@ -121,7 +106,7 @@ static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     case ESP_SPP_DATA_IND_EVT:
         ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
-        message_t msg = newMessage(param->data_ind.data, param->data_ind.len);
+        message_t msg = message_new(param->data_ind.data, param->data_ind.len);
         if (xQueueSend(btRxQueue, &msg, 0) == errQUEUE_FULL)
             ESP_LOGE(TAG, "btRxQueue FULL");
         break;
@@ -133,7 +118,7 @@ static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     case ESP_SPP_SRV_OPEN_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT handle:%d", param->open.handle);
-        btCurrentHandle = param->open.handle;
+        currentHandle = param->open.handle;
         break;
     case ESP_SPP_SRV_STOP_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_STOP_EVT");
@@ -143,7 +128,7 @@ static void btSppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     }
 }
 
-static void btTxTask(void *arg)
+static void txTask(void *arg)
 {
     message_t msg;
 
@@ -151,17 +136,17 @@ static void btTxTask(void *arg)
     {
         xQueueReceive(btTxQueue, &msg, portMAX_DELAY);
 
-        if (btCurrentHandle > 0)
+        if (currentHandle > 0)
         {
             // TODO I recall reading that SPP max data length is 128
-            esp_spp_write(btCurrentHandle, msg.length, msg.data);
+            esp_spp_write(currentHandle, msg.length, msg.data);
         }
 
-        free(msg.data);
+        message_free(&msg);
     }
 }
 
-void btInit(void)
+void bt_init(void)
 {
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_BLE));
 
@@ -171,26 +156,15 @@ void btInit(void)
     ESP_ERROR_CHECK(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
     ESP_ERROR_CHECK(esp_bluedroid_init());
     ESP_ERROR_CHECK(esp_bluedroid_enable());
-    ESP_ERROR_CHECK(esp_bt_gap_register_callback(btGapCallback));
-    ESP_ERROR_CHECK(esp_spp_register_callback(btSppCallback));
+    ESP_ERROR_CHECK(esp_bt_gap_register_callback(gapCallback));
+    ESP_ERROR_CHECK(esp_spp_register_callback(sppCallback));
     ESP_ERROR_CHECK(esp_spp_init(ESP_SPP_MODE_CB));
+    ESP_ERROR_CHECK(esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, 4, (esp_bt_pin_code_t){0, 0, 0, 0}));
 
-#if (CONFIG_BT_SSP_ENABLED == true)
-    // Secure Simple Pairing
-    esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;
-    esp_bt_io_cap_t iocap = ESP_BT_IO_CAP_IO;
-    esp_bt_gap_set_security_param(param_type, &iocap, sizeof(uint8_t));
-#endif
+    btRxQueue = xQueueCreate(CONFIG_BT_QUEUES_LEN, sizeof(message_t));
+    btTxQueue = xQueueCreate(CONFIG_BT_QUEUES_LEN, sizeof(message_t));
 
-    // Legacy pairing
-    esp_bt_pin_type_t pin_type = ESP_BT_PIN_TYPE_VARIABLE;
-    esp_bt_pin_code_t pin_code;
-    esp_bt_gap_set_pin(pin_type, 0, pin_code);
-
-    btRxQueue = xQueueCreate(BT_QUEUES_LEN, sizeof(message_t));
-    btTxQueue = xQueueCreate(BT_QUEUES_LEN, sizeof(message_t));
-
-    xTaskCreate(btTxTask, "btTx", 2048, NULL, BT_TX_TASK_PRIO, NULL);
+    xTaskCreate(txTask, "btTx", 2048, NULL, CONFIG_BT_TX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

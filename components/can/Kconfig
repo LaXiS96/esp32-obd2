@@ -1,0 +1,15 @@
+menu "CAN bus"
+
+    config CAN_TX_GPIO_NUM
+        int "CAN TX GPIO number"
+        default 21
+
+    config CAN_RX_GPIO_NUM
+        int "CAN RX GPIO number"
+        default 22
+
+    config CAN_RX_TASK_PRIO
+        int "CAN RX task priority"
+        default 1
+
+endmenu

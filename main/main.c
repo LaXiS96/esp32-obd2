@@ -22,9 +22,9 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     // uartInit();
-    btInit();
+    bt_init();
     // wifiInit();
-    canInit();
-    slcanInit(btRxQueue, btTxQueue);
+    can_init();
+    slcan_init(&btRxQueue, &btTxQueue);
     // sdInit();
 }

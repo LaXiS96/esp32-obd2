@@ -3,11 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * Construct a message_t object.
- * The `data` member must be freed after usage.
- */
-message_t newMessage(uint8_t *data, size_t length)
+message_t message_new(uint8_t *data, size_t length)
 {
     message_t msg = {
         .length = length,
@@ -15,4 +11,9 @@ message_t newMessage(uint8_t *data, size_t length)
     };
     memcpy(msg.data, data, length);
     return msg;
+}
+
+void message_free(message_t *msg)
+{
+    free(msg->data);
 }

@@ -1,21 +1,21 @@
 # ESP32 OBD-II adapter
 
-This project is work-in-progress and started as a tool to access the CAN buses on my Mazda3, for reverse engineering and for fun.
+This project is work-in-progress and starts as a tool to access the CAN buses available on my Mazda3, for reverse engineering and for fun.
 
-Development is done on an ESP32 DevKitC V4 board, mounting an ESP32-WROOM-32D module.
+Development is done on an ESP32 DevKitC V4 board, which includes an ESP32-WROOM-32D module.
 
-Using [ESP-IDF v4.2](https://github.com/espressif/esp-idf).
+Built and tested with [ESP-IDF v4.4](https://github.com/espressif/esp-idf).
 
 ## Features roadmap
 
 - ✔ CAN connection with vehicle
-    - tested transceivers: SN65HVD230, MCP2551 (with 5V -> 3.3V RX voltage translation)
-- ✔ Linux SocketCAN compatibility with [`slcan` driver](https://github.com/torvalds/linux/blob/master/drivers/net/can/slcan.c)
+    - Tested CAN transceivers: [SN65HVD230](https://www.ti.com/product/SN65HVD230), [MCP2551](https://www.microchip.com/en-us/product/MCP2551) (with 5V -> 3.3V RX voltage translation)
+- ✔ Linux SocketCAN compatibility with [`slcan` driver](https://github.com/torvalds/linux/blob/v6.0/drivers/net/can/slcan)
 - ✔ Bluetooth
     - `slcan` over Bluetooth Classic Serial Port Profile (SPP)
-    - Secure Simple Pairing supported, otherwise pairing PIN is 0000
+    - legacy pairing PIN is 0000
 - ❔ logging to SD card
-    - same file format as `candump`
+    - same file format as `candump`?
 - ❔ socket communication over WiFi softAP
     - how to keep compatibility with `slcan`? just make a TCP-serial bridge with `socat`? any other way to create a SocketCAN interface while still using `slcan` over TCP?
     - interesting: `python-can` supports "[remote serial ports](https://python-can.readthedocs.io/en/master/interfaces/slcan.html)"
@@ -35,8 +35,6 @@ This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` So
     sudo slcand -o -c -f -s6 -S 921600 /dev/ttyUSB0 slcan0
     sudo ip link set up slcan0
     cansniffer slcan0
-
-### Dumping and replaying (can-utils)
 
 Dump to file:
 
