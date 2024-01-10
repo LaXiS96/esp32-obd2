@@ -159,10 +159,10 @@ void bt_init(void)
     ESP_ERROR_CHECK(esp_spp_enhanced_init(&spp_cfg));
     ESP_ERROR_CHECK(esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, 4, (esp_bt_pin_code_t){0, 0, 0, 0}));
 
-    btRxQueue = xQueueCreate(CONFIG_BT_QUEUES_LEN, sizeof(message_t));
-    btTxQueue = xQueueCreate(CONFIG_BT_QUEUES_LEN, sizeof(message_t));
+    btRxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
+    btTxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
 
-    xTaskCreate(txTask, "btTx", 2048, NULL, CONFIG_BT_TX_TASK_PRIO, NULL);
+    xTaskCreate(txTask, "btTx", 2048, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

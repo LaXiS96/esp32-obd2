@@ -443,8 +443,8 @@ void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
     _rxQueue = rxQueue;
     _txQueue = txQueue;
 
-    xTaskCreate(serialRxTask, "slcan serialRx", 2048, NULL, CONFIG_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
-    xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_SLCAN_CAN_RX_TASK_PRIO, NULL);
+    xTaskCreate(serialRxTask, "slcan serialRx", 2048, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
+    xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

@@ -40,7 +40,7 @@ void can_init(void)
 {
     can_rxQueue = xQueueCreate(8, sizeof(twai_message_t));
 
-    xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CONFIG_CAN_RX_TASK_PRIO, &rxTaskHandle);
+    xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CONFIG_APP_CAN_RX_TASK_PRIO, &rxTaskHandle);
 
     ESP_LOGI(TAG, "initialized");
 }
@@ -66,7 +66,7 @@ esp_err_t can_open(twai_mode_t mode, twai_timing_config_t *timingConfig)
 
     ESP_LOGI(TAG, "opening");
 
-    canGeneralConfig = &(twai_general_config_t)TWAI_GENERAL_CONFIG_DEFAULT(CONFIG_CAN_TX_GPIO_NUM, CONFIG_CAN_RX_GPIO_NUM, mode);
+    canGeneralConfig = &(twai_general_config_t)TWAI_GENERAL_CONFIG_DEFAULT(CONFIG_APP_CAN_TX_GPIO_NUM, CONFIG_APP_CAN_RX_GPIO_NUM, mode);
     const twai_filter_config_t filterConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
     ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
