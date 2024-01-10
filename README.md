@@ -4,7 +4,7 @@ This project is work-in-progress and starts as a tool to access the CAN buses av
 
 Development is done on an ESP32 DevKitC V4 board, which includes an ESP32-WROOM-32D module.
 
-Built and tested with [ESP-IDF v4.4](https://github.com/espressif/esp-idf).
+Built and tested with [ESP-IDF v5.1](https://github.com/espressif/esp-idf).
 
 ## Features roadmap
 

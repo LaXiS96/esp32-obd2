@@ -4,8 +4,8 @@
 #include "freertos/queue.h"
 
 // TODO refactor
-QueueHandle_t btRxQueue;
-QueueHandle_t btTxQueue;
+extern QueueHandle_t btRxQueue;
+extern QueueHandle_t btTxQueue;
 
 /**
  * @brief Initialize Bluetooth component

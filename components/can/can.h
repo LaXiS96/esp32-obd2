@@ -6,7 +6,7 @@
 
 // TODO dynamic queue allocation by caller in can_init
 // Received CAN frames
-QueueHandle_t can_rxQueue;
+extern QueueHandle_t can_rxQueue;
 
 /// @brief Initialize CAN component
 void can_init(void);

@@ -10,6 +10,8 @@
 
 static const char *TAG = "CAN";
 
+QueueHandle_t can_rxQueue;
+
 // TODO use task notifications instead
 // Lock queue: empty = CAN closed; not empty = CAN open
 static QueueHandle_t canOpenLockQueue;

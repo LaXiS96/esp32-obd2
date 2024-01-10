@@ -13,6 +13,7 @@ Target is to be compatible with Linux SocketCAN slcan driver, to allow usage of 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 
 #define SLCAN_MIN_STD_CMD_LEN (strlen("t1FF0\r"))
 #define SLCAN_MIN_EXT_CMD_LEN (strlen("T1FFFFFFF0\r"))
