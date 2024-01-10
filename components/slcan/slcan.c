@@ -36,16 +36,16 @@ static const uint8_t ASCII2HEX_LUT[] = {
 };
 // clang-format on
 
-static QueueHandle_t *_serialRxQueue;
-static QueueHandle_t *_serialTxQueue;
+static QueueHandle_t *_rxQueue;
+static QueueHandle_t *_txQueue;
 
 static twai_timing_config_t timingConfig = {};
 
 static void sendSerialMessage(char *data, size_t len)
 {
     message_t msg = message_new((uint8_t *)data, len);
-    if (xQueueSend(*_serialTxQueue, &msg, 0) == errQUEUE_FULL)
-        ESP_LOGE(TAG, "_serialTxQueue full");
+    if (xQueueSend(*_txQueue, &msg, 0) == errQUEUE_FULL)
+        ESP_LOGE(TAG, "_txQueue full");
 }
 
 /// @brief Send an OK response (0x0D), with optional data
@@ -76,7 +76,7 @@ static void sendErrorResponse(void)
 
 /// @brief Format received CAN frame for SLCAN output
 /// @param msg input frame
-/// @param str formatted output string, must be at least TODO long
+/// @param str formatted output string, must be at least SLCAN_MAX_CMD_LEN+1 long
 static void formatFrame(twai_message_t *msg, char *str)
 {
     if (msg->extd)
@@ -362,7 +362,7 @@ static void serialRxTask(void *arg)
 
     while (1)
     {
-        xQueueReceive(*_serialRxQueue, &msg, portMAX_DELAY);
+        xQueueReceive(*_rxQueue, &msg, portMAX_DELAY);
         // ESP_LOG_BUFFER_HEXDUMP(TAG, msg.data, msg.length, ESP_LOG_INFO);
 
         uint8_t *pCmdStart = msg.data;                          // Command start position
@@ -438,10 +438,10 @@ static void canRxTask(void *arg)
     }
 }
 
-void slcan_init(QueueHandle_t *serialRxQueue, QueueHandle_t *serialTxQueue)
+void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
 {
-    _serialRxQueue = serialRxQueue;
-    _serialTxQueue = serialTxQueue;
+    _rxQueue = rxQueue;
+    _txQueue = txQueue;
 
     xTaskCreate(serialRxTask, "slcan serialRx", 2048, NULL, CONFIG_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
     xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_SLCAN_CAN_RX_TASK_PRIO, NULL);
