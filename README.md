@@ -32,20 +32,24 @@ Built and tested with [ESP-IDF v5.1](https://github.com/espressif/esp-idf).
 
 This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` SocketCAN driver, so that it can be used with [`can-utils`](https://github.com/linux-can/can-utils)' `slcand` and other utilities like `cansniffer`.
 
-    sudo slcand -o -c -f -s6 -S 921600 /dev/ttyUSB0 slcan0
+```sh
+    sudo slcand -o -c -s6 -S 921600 /dev/ttyUSB0 slcan0 # add -F to run in foreground, use /dev/rfcomm0 for Bluetooth serial port
     sudo ip link set up slcan0
     cansniffer slcan0
+```
 
 Dump to file:
-
+```sh
     candump -l slcan0
+```
 
 Replay from file:
-
+```sh
     sudo ip link add dev vcan0 type vcan
     sudo ip link set up vcan0
     # Replay slcan0 dump on vcan0 in infinite loop
     canplayer vcan0=slcan0 -li -I ./candump-*.log
+```
 
 ### OBD-II pin and cable mapping
 

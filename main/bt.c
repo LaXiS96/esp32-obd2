@@ -66,15 +66,6 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             ESP_LOGE(TAG, "ESP_SPP_INIT_EVT status:%d", param->init.status);
         }
         break;
-    // case ESP_SPP_UNINIT_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_UNINIT_EVT");
-    //     break;
-    // case ESP_SPP_DISCOVERY_COMP_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_DISCOVERY_COMP_EVT");
-    //     break;
-    // case ESP_SPP_OPEN_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_OPEN_EVT");
-    //     break;
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
         currentHandle = 0;
@@ -91,21 +82,15 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             ESP_LOGE(TAG, "ESP_SPP_START_EVT status:%d", param->start.status);
         }
         break;
-    // case ESP_SPP_CL_INIT_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_CL_INIT_EVT");
-    //     break;
     case ESP_SPP_DATA_IND_EVT:
-        ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
+        // ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
         message_t msg = message_new(param->data_ind.data, param->data_ind.len);
         if (xQueueSend(btRxQueue, &msg, 0) == errQUEUE_FULL)
             ESP_LOGE(TAG, "btRxQueue FULL");
         break;
-    // case ESP_SPP_CONG_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_CONG_EVT");
-    //     break;
-    // case ESP_SPP_WRITE_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_WRITE_EVT");
-    //     break;
+    case ESP_SPP_WRITE_EVT:
+        // ESP_LOGI(TAG, "ESP_SPP_WRITE_EVT");
+        break;
     case ESP_SPP_SRV_OPEN_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%" PRIu32 ", rem_bda:[%s]",
                  param->srv_open.status,
@@ -113,9 +98,6 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
                  bda2str(param->srv_open.rem_bda, bda_str, sizeof(bda_str)));
         currentHandle = param->srv_open.handle;
         break;
-    // case ESP_SPP_SRV_STOP_EVT:
-    //     ESP_LOGI(TAG, "ESP_SPP_SRV_STOP_EVT");
-    //     break;
     default:
         ESP_LOGI(TAG, "SPP event:%d", event);
     }
@@ -157,7 +139,7 @@ void bt_init(void)
     ESP_ERROR_CHECK(esp_bt_gap_register_callback(gapCallback));
     ESP_ERROR_CHECK(esp_spp_register_callback(sppCallback));
     ESP_ERROR_CHECK(esp_spp_enhanced_init(&spp_cfg));
-    ESP_ERROR_CHECK(esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, 4, (esp_bt_pin_code_t){0, 0, 0, 0}));
+    ESP_ERROR_CHECK(esp_bt_gap_set_pin(ESP_BT_PIN_TYPE_FIXED, 4, (esp_bt_pin_code_t){'0', '0', '0', '0'}));
 
     btRxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
     btTxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
