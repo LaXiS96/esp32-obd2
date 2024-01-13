@@ -247,18 +247,26 @@ static void parseCommand(uint8_t *buf, size_t len)
         }
         break;
     case 'O': // Open CAN channel
-        if (can_isOpen() || timingConfig.brp == 0)
+              // TODO check if timingConfig was set previously
+        if (can_isOpen())
+        {
+            ESP_LOGE(TAG, "already open or brp:%" PRIu32, timingConfig.brp);
             sendErrorResponse();
+        }
         else
         {
-            if (can_open(TWAI_MODE_NORMAL, &timingConfig) == ESP_OK)
+            esp_err_t res = can_open(TWAI_MODE_NORMAL, &timingConfig);
+            if (res == ESP_OK)
                 sendOkResponse(NULL);
             else
+            {
+                ESP_LOGE(TAG, "can_open returned %s", esp_err_to_name(res));
                 sendErrorResponse();
+            }
         }
         break;
     case 'L': // Open CAN channel in listen-only mode
-        if (can_isOpen() || timingConfig.brp == 0)
+        if (can_isOpen() || timingConfig.brp == 0) // TODO
             sendErrorResponse();
         else
         {
@@ -431,6 +439,7 @@ static void canRxTask(void *arg)
     {
         twai_message_t msg;
         xQueueReceive(can_rxQueue, &msg, portMAX_DELAY);
+        // ESP_LOGW(TAG, "received from can_rxQueue id:%" PRIu32, msg.identifier);
 
         char out[32];
         formatFrame(&msg, out);
@@ -443,7 +452,7 @@ void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
     _rxQueue = rxQueue;
     _txQueue = txQueue;
 
-    xTaskCreate(serialRxTask, "slcan serialRx", 2048, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
+    xTaskCreate(serialRxTask, "slcan serialRx", 3072, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
     xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");

@@ -53,6 +53,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
     char bda_str[18] = {0};
 
+    // TODO handle ESP_SPP_CONG_EVT
     switch (event)
     {
     case ESP_SPP_INIT_EVT:

@@ -9,29 +9,31 @@
 #include "driver/twai.h"
 
 #define TAG "CAN"
-#define NOTIFY_OPEN (1 << 0)
 
 QueueHandle_t can_rxQueue;
 
+// Lock queue: empty = CAN closed; not empty = CAN open
+static QueueHandle_t canOpenLockQueue;
+static uint8_t canOpenLockDummy;
+
 static twai_general_config_t *canGeneralConfig;
-static TaskHandle_t rxTaskHandle = NULL;
 
 static void canRxTask(void *arg)
 {
-    uint32_t notified = 0;
-
     while (1)
     {
         // Block task while CAN is not open
-        xTaskNotifyWait(0, 0, &notified, portMAX_DELAY);
-        if ((notified & NOTIFY_OPEN) != 0)
+        if (xQueuePeek(canOpenLockQueue, &canOpenLockDummy, portMAX_DELAY) == pdTRUE)
         {
             twai_message_t msg;
 
             // Try receiving for 100ms max and sending to queue for 100ms if full
             if (twai_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
+            {
+                // ESP_LOGW(TAG, "received message id:%" PRIu32, msg.identifier);
                 if (xQueueSend(can_rxQueue, &msg, pdMS_TO_TICKS(100)) == errQUEUE_FULL)
-                    ESP_LOGE(TAG, "can_rxQueue full");
+                    ESP_LOGE(TAG, "receive queue full");
+            }
         }
     }
 }
@@ -39,19 +41,16 @@ static void canRxTask(void *arg)
 void can_init(void)
 {
     can_rxQueue = xQueueCreate(8, sizeof(twai_message_t));
+    canOpenLockQueue = xQueueCreate(1, sizeof(canOpenLockDummy));
 
-    xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CONFIG_APP_CAN_RX_TASK_PRIO, &rxTaskHandle);
+    xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CONFIG_APP_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }
 
 bool can_isOpen(void)
 {
-    if (rxTaskHandle == NULL)
-        return false;
-
-    uint32_t notified = ulTaskNotifyValueClear(rxTaskHandle, 0);
-    return (notified & NOTIFY_OPEN) != 0;
+    return xQueuePeek(canOpenLockQueue, &canOpenLockDummy, 0) == pdTRUE;
 }
 
 twai_mode_t can_getMode(void)
@@ -72,7 +71,7 @@ esp_err_t can_open(twai_mode_t mode, twai_timing_config_t *timingConfig)
     ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
     ESP_ERROR_CHECK(twai_start());
 
-    xTaskNotify(rxTaskHandle, NOTIFY_OPEN, eSetBits);
+    xQueueSend(canOpenLockQueue, &(uint8_t){1}, portMAX_DELAY);
 
     ESP_LOGI(TAG, "opened");
     return ESP_OK;
@@ -84,7 +83,8 @@ esp_err_t can_close(void)
         return ESP_ERR_INVALID_STATE;
 
     ESP_LOGI(TAG, "closing");
-    ulTaskNotifyValueClear(rxTaskHandle, NOTIFY_OPEN);
+    xQueueReceive(canOpenLockQueue, &canOpenLockDummy, portMAX_DELAY);
+
     ESP_ERROR_CHECK(twai_stop());
     ESP_ERROR_CHECK(twai_driver_uninstall());
 
