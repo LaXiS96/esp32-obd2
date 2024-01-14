@@ -2,6 +2,7 @@
 
 #include "message.h"
 
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -145,9 +146,33 @@ static void txTask(void *arg)
 {
     while (1)
     {
-        // Dequeue new message once previous write is finished
+        // Wait for previous write to finish
         xSemaphoreTake(sppWriteLock, portMAX_DELAY);
-        xQueueReceive(btTxQueue, &sppMessage, portMAX_DELAY);
+
+        // Read multiple messages from queue and send them at once (max 128bytes or 10ms timeout)
+        message_t msg;
+        uint8_t buf[128];
+        uint8_t *pBuf = buf;
+        while (xQueueReceive(btTxQueue, &msg, pdMS_TO_TICKS(10)) == pdTRUE)
+        {
+            uint8_t free = buf + sizeof(buf) - pBuf;
+            if (msg.length <= free)
+            {
+                memcpy(pBuf, msg.data, msg.length);
+                pBuf += msg.length;
+                ESP_LOGI(TAG, "msg length:%d", msg.length);
+            }
+            else
+            {
+                // TODO store msg for next loop
+                ESP_LOGW(TAG, "discarded message length:%d free:%d", msg.length, free);
+            }
+            message_free(&msg);
+        }
+        ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
+
+        sppMessage = message_new(buf, pBuf - buf);
+        ESP_LOGI(TAG, "sppMessage length:%d", sppMessage.length);
 
         if (sppHandle > 0)
         {
