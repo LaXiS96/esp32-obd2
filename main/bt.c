@@ -4,6 +4,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -16,7 +17,9 @@
 QueueHandle_t btRxQueue;
 QueueHandle_t btTxQueue;
 
-static uint32_t currentHandle = 0;
+static uint32_t sppHandle = 0;
+static SemaphoreHandle_t sppWriteLock;
+static message_t sppMessage; // Message to be written to SPP
 
 static char *bda2str(uint8_t *bda, char *str, size_t size)
 {
@@ -51,9 +54,9 @@ static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
 
 static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
+    static bool writeFailed = false;
     char bda_str[18] = {0};
 
-    // TODO handle ESP_SPP_CONG_EVT
     switch (event)
     {
     case ESP_SPP_INIT_EVT:
@@ -69,7 +72,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         break;
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
-        currentHandle = 0;
+        sppHandle = 0;
         break;
     case ESP_SPP_START_EVT:
         if (param->start.status == ESP_SPP_SUCCESS)
@@ -89,15 +92,49 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         if (xQueueSend(btRxQueue, &msg, 0) == errQUEUE_FULL)
             ESP_LOGE(TAG, "btRxQueue FULL");
         break;
+    case ESP_SPP_CONG_EVT:
+        ESP_LOGW(TAG, "ESP_SPP_CONG_EVT status:%d cong:%d", param->cong.status, param->cong.cong);
+        if (!param->cong.cong)
+        {
+            if (writeFailed)
+            {
+                // Resend the current message
+                writeFailed = false;
+                esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
+            }
+            else
+            {
+                // Congestion resolved, clean up and allow new writes
+                message_free(&sppMessage);
+                xSemaphoreGive(sppWriteLock);
+            }
+        }
+        break;
     case ESP_SPP_WRITE_EVT:
-        // ESP_LOGI(TAG, "ESP_SPP_WRITE_EVT");
+        if (param->write.status != ESP_SPP_SUCCESS || param->write.cong || param->write.len == -1)
+            ESP_LOGW(TAG, "ESP_SPP_WRITE_EVT status:%d cong:%d len:%d", param->write.status, param->write.cong, param->write.len);
+
+        if (param->write.status == ESP_SPP_SUCCESS)
+        {
+            if (!param->write.cong)
+            {
+                // Successful write without congestion, clean up and allow new writes
+                message_free(&sppMessage);
+                xSemaphoreGive(sppWriteLock);
+            }
+        }
+        else if (param->write.len == -1)
+        {
+            // Write failed for congestion? Message will be resent once congestion is resolved
+            writeFailed = true;
+        }
         break;
     case ESP_SPP_SRV_OPEN_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%" PRIu32 ", rem_bda:[%s]",
                  param->srv_open.status,
                  param->srv_open.handle,
                  bda2str(param->srv_open.rem_bda, bda_str, sizeof(bda_str)));
-        currentHandle = param->srv_open.handle;
+        sppHandle = param->srv_open.handle;
         break;
     default:
         ESP_LOGI(TAG, "SPP event:%d", event);
@@ -106,19 +143,23 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
 static void txTask(void *arg)
 {
-    message_t msg;
-
     while (1)
     {
-        xQueueReceive(btTxQueue, &msg, portMAX_DELAY);
+        // Dequeue new message once previous write is finished
+        xSemaphoreTake(sppWriteLock, portMAX_DELAY);
+        xQueueReceive(btTxQueue, &sppMessage, portMAX_DELAY);
 
-        if (currentHandle > 0)
+        if (sppHandle > 0)
         {
-            // TODO I recall reading that SPP max data length is 128
-            esp_spp_write(currentHandle, msg.length, msg.data);
+            esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
+            // Message will be freed in SPP callback
         }
-
-        message_free(&msg);
+        else
+        {
+            // SPP not connected, discard message
+            message_free(&sppMessage);
+            xSemaphoreGive(sppWriteLock);
+        }
     }
 }
 
@@ -144,6 +185,9 @@ void bt_init(void)
 
     btRxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
     btTxQueue = xQueueCreate(CONFIG_APP_BT_QUEUES_LEN, sizeof(message_t));
+
+    sppWriteLock = xSemaphoreCreateBinary();
+    xSemaphoreGive(sppWriteLock);
 
     xTaskCreate(txTask, "btTx", 2048, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
 
