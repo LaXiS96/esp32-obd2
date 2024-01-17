@@ -19,7 +19,7 @@ QueueHandle_t btRxQueue;
 QueueHandle_t btTxQueue;
 
 static uint32_t sppHandle = 0;
-static SemaphoreHandle_t sppWriteLock;
+static SemaphoreHandle_t sppWriteLock = NULL;
 static message_t sppMessage; // Message to be written to SPP
 
 static char *bda2str(uint8_t *bda, char *str, size_t size)
@@ -55,7 +55,6 @@ static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *para
 
 static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 {
-    static bool writeFailed = false;
     char bda_str[18] = {0};
 
     switch (event)
@@ -88,47 +87,27 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         }
         break;
     case ESP_SPP_DATA_IND_EVT:
-        // ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
+        ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
         message_t msg = message_new(param->data_ind.data, param->data_ind.len);
         if (xQueueSend(btRxQueue, &msg, 0) == errQUEUE_FULL)
             ESP_LOGE(TAG, "btRxQueue FULL");
         break;
     case ESP_SPP_CONG_EVT:
         ESP_LOGW(TAG, "ESP_SPP_CONG_EVT status:%d cong:%d", param->cong.status, param->cong.cong);
-        if (!param->cong.cong)
-        {
-            if (writeFailed)
-            {
-                // Resend the current message
-                writeFailed = false;
-                esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
-            }
-            else
-            {
-                // Congestion resolved, clean up and allow new writes
-                message_free(&sppMessage);
-                xSemaphoreGive(sppWriteLock);
-            }
-        }
+        if (!param->cong.cong) // Congestion resolved, allow new writes
+            xSemaphoreGive(sppWriteLock);
         break;
     case ESP_SPP_WRITE_EVT:
-        if (param->write.status != ESP_SPP_SUCCESS || param->write.cong || param->write.len == -1)
+        if (param->write.status != ESP_SPP_SUCCESS || param->write.cong)
             ESP_LOGW(TAG, "ESP_SPP_WRITE_EVT status:%d cong:%d len:%d", param->write.status, param->write.cong, param->write.len);
 
-        if (param->write.status == ESP_SPP_SUCCESS)
-        {
-            if (!param->write.cong)
-            {
-                // Successful write without congestion, clean up and allow new writes
-                message_free(&sppMessage);
-                xSemaphoreGive(sppWriteLock);
-            }
-        }
-        else if (param->write.len == -1)
-        {
-            // Write failed for congestion? Message will be resent once congestion is resolved
-            writeFailed = true;
-        }
+        // Allow new writes only if there is no congestion (ESP_SPP_CONG_EVT event will arrive otherwise)
+        // TODO is cong valid if status != success?
+        if (!param->write.cong)
+            xSemaphoreGive(sppWriteLock);
+
+        // TODO maybe it makes sense to resend if the write was not successful
+        message_free(&sppMessage);
         break;
     case ESP_SPP_SRV_OPEN_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%" PRIu32 ", rem_bda:[%s]",
@@ -149,42 +128,54 @@ static void txTask(void *arg)
         // Wait for previous write to finish
         xSemaphoreTake(sppWriteLock, portMAX_DELAY);
 
-        // Read multiple messages from queue and send them at once (max 128bytes or 10ms timeout)
+        // Read multiple messages from queue and send them at once (max 64bytes or 10ms timeout)
         message_t msg;
-        uint8_t buf[128];
+        uint8_t buf[64];
         uint8_t *pBuf = buf;
+        uint8_t received = 0;
+        // TODO how to ensure we don't delay old messages too long?
         while (xQueueReceive(btTxQueue, &msg, pdMS_TO_TICKS(10)) == pdTRUE)
         {
             uint8_t free = buf + sizeof(buf) - pBuf;
+            // ESP_LOGI(TAG, "free:%d", free);
             if (msg.length <= free)
             {
                 memcpy(pBuf, msg.data, msg.length);
                 pBuf += msg.length;
-                ESP_LOGI(TAG, "msg length:%d", msg.length);
+                received++;
+                message_free(&msg);
             }
             else
             {
                 // TODO store msg for next loop
                 ESP_LOGW(TAG, "discarded message length:%d free:%d", msg.length, free);
+                message_free(&msg);
+                break;
             }
-            message_free(&msg);
         }
-        ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
 
-        sppMessage = message_new(buf, pBuf - buf);
-        ESP_LOGI(TAG, "sppMessage length:%d", sppMessage.length);
-
-        if (sppHandle > 0)
+        if (received > 0)
         {
-            esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
-            // Message will be freed in SPP callback
+            // ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
+
+            size_t len = pBuf - buf;
+
+            if (sppHandle > 0)
+            {
+                sppMessage = message_new(buf, len);
+                ESP_LOGI(TAG, "write messages:%d bytes:%d", received, sppMessage.length);
+                esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
+                // sppMessage will be freed and sppWriteLock given in SPP callbacks
+            }
+            else
+            {
+                // SPP not connected, discard message
+                ESP_LOGI(TAG, "discard messages:%d bytes:%d", received, len);
+                xSemaphoreGive(sppWriteLock);
+            }
         }
         else
-        {
-            // SPP not connected, discard message
-            message_free(&sppMessage);
             xSemaphoreGive(sppWriteLock);
-        }
     }
 }
 
@@ -214,7 +205,7 @@ void bt_init(void)
     sppWriteLock = xSemaphoreCreateBinary();
     xSemaphoreGive(sppWriteLock);
 
-    xTaskCreate(txTask, "btTx", 2048, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
+    xTaskCreate(txTask, "btTx", 3072, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

@@ -45,7 +45,12 @@ static void sendSerialMessage(char *data, size_t len)
 {
     message_t msg = message_new((uint8_t *)data, len);
     if (xQueueSend(*_txQueue, &msg, 0) == errQUEUE_FULL)
-        ESP_LOGE(TAG, "_txQueue full");
+    {
+        ESP_LOGE(TAG, "transmit queue full");
+        message_free(&msg);
+    }
+    else
+        ESP_LOGI(TAG, "serial transmit bytes:%d", len);
 }
 
 /// @brief Send an OK response (0x0D), with optional data
@@ -77,50 +82,53 @@ static void sendErrorResponse(void)
 /// @brief Format received CAN frame for SLCAN output
 /// @param msg input frame
 /// @param str formatted output string, must be at least SLCAN_MAX_CMD_LEN+1 long
-static void formatFrame(twai_message_t *msg, char *str)
+/// @param outLen length of formatted output
+static void formatFrame(twai_message_t *msg, char *str, size_t *outLen)
 {
+    char *pStr = str;
+
     if (msg->extd)
     {
         if (msg->rtr)
-            *str++ = 'R';
+            *pStr++ = 'R';
         else
-            *str++ = 'T';
+            *pStr++ = 'T';
 
         // 29bit identifier
-        *str++ = HEX2ASCII(msg->identifier >> 28 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 24 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 20 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 16 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 12 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 28 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 24 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 20 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 16 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 12 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier & 0xF);
     }
     else
     {
         if (msg->rtr)
-            *str++ = 'r';
+            *pStr++ = 'r';
         else
-            *str++ = 't';
+            *pStr++ = 't';
 
         // 11bit identifier
-        *str++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
-        *str++ = HEX2ASCII(msg->identifier & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 8 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier >> 4 & 0xF);
+        *pStr++ = HEX2ASCII(msg->identifier & 0xF);
     }
 
     // Data Length Code
-    *str++ = HEX2ASCII(msg->data_length_code & 0xF);
+    *pStr++ = HEX2ASCII(msg->data_length_code & 0xF);
 
     // Data bytes
     for (int i = 0; i < msg->data_length_code; i++)
     {
-        *str++ = HEX2ASCII(msg->data[i] >> 4);
-        *str++ = HEX2ASCII(msg->data[i] & 0xF);
+        *pStr++ = HEX2ASCII(msg->data[i] >> 4);
+        *pStr++ = HEX2ASCII(msg->data[i] & 0xF);
     }
 
-    *str++ = '\r';
-    *str++ = '\0';
+    *pStr++ = '\r';
+    *outLen = pStr - str;
 }
 
 /// @brief Parse t, T, r, R frame commands
@@ -265,7 +273,7 @@ static void parseCommand(uint8_t *buf, size_t len)
             }
         }
         break;
-    case 'L': // Open CAN channel in listen-only mode
+    case 'L':                                      // Open CAN channel in listen-only mode
         if (can_isOpen() || timingConfig.brp == 0) // TODO
             sendErrorResponse();
         else
@@ -372,6 +380,7 @@ static void serialRxTask(void *arg)
     {
         xQueueReceive(*_rxQueue, &msg, portMAX_DELAY);
         // ESP_LOG_BUFFER_HEXDUMP(TAG, msg.data, msg.length, ESP_LOG_INFO);
+        ESP_LOGI(TAG, "serial received bytes:%d", msg.length);
 
         uint8_t *pCmdStart = msg.data;                          // Command start position
         uint8_t *pCmdEnd = memchr(pCmdStart, '\r', msg.length); // Command end position (CR character)
@@ -442,8 +451,9 @@ static void canRxTask(void *arg)
         // ESP_LOGW(TAG, "received from can_rxQueue id:%" PRIu32, msg.identifier);
 
         char out[32];
-        formatFrame(&msg, out);
-        sendSerialMessage(out, strlen(out));
+        size_t len;
+        formatFrame(&msg, out, &len);
+        sendSerialMessage(out, len);
     }
 }
 
@@ -453,7 +463,7 @@ void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
     _txQueue = txQueue;
 
     xTaskCreate(serialRxTask, "slcan serialRx", 3072, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
-    xTaskCreate(canRxTask, "slcan canRx", 2048, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, NULL);
+    xTaskCreate(canRxTask, "slcan canRx", 3072, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

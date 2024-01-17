@@ -1,7 +1,13 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
   "idf.adapterTargetName": "esp32",
+  "idf.port": "/dev/ttyUSB0",
   "idf.portWin": "COM3",
-  "idf.flashType": "UART",
-  "idf.port": "/dev/ttyUSB0"
+  "idf.flashType": "JTAG",
+  "idf.openOcdConfigs": [
+    "interface/jlink.cfg",
+    "openocd_jlink.cfg",
+    "target/esp32.cfg"
+  ],
+  "idf.svdFilePath": "${workspaceFolder}/esp32.svd"
 }

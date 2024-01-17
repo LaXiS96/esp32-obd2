@@ -30,7 +30,7 @@ static void canRxTask(void *arg)
             // Try receiving for 100ms max and sending to queue for 100ms if full
             if (twai_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
             {
-                // ESP_LOGW(TAG, "received message id:%" PRIu32, msg.identifier);
+                ESP_LOGI(TAG, "received message id:%" PRIu32, msg.identifier);
                 if (xQueueSend(can_rxQueue, &msg, pdMS_TO_TICKS(100)) == errQUEUE_FULL)
                     ESP_LOGE(TAG, "receive queue full");
             }
@@ -43,7 +43,7 @@ void can_init(void)
     can_rxQueue = xQueueCreate(8, sizeof(twai_message_t));
     canOpenLockQueue = xQueueCreate(1, sizeof(canOpenLockDummy));
 
-    xTaskCreate(canRxTask, "CAN RX", 4096, NULL, CONFIG_APP_CAN_RX_TASK_PRIO, NULL);
+    xTaskCreate(canRxTask, "canRx", 2048, NULL, CONFIG_APP_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }
