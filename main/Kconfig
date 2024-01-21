@@ -2,7 +2,7 @@ menu "Application configuration"
 
     config APP_BT_QUEUES_LEN
         int "Bluetooth message queue size"
-        default 32
+        default 8
 
     config APP_BT_TX_TASK_PRIO
         int "Bluetooth TX task priority"

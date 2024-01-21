@@ -34,7 +34,12 @@ Check `idf.openOcdConfigs` in your `settings.json` (currently set up for J-Link)
 
 ## Useful info
 
-### Linux SocketCAN / can-utils usage example
+### Linux Bluetooth usage
+
+1. Pair device via GUI or with `bluetoothctl`
+2. `sudo rfcomm bind rfcomm0 aa:bb:cc:dd:ee:ff` where `aa:bb:cc:dd:ee:ff` is the Bluetooth address of your ESP32 (found while pairing or in ESP32 logs)
+
+### Linux SocketCAN / can-utils usage
 
 This adapter implements the LAWICEL SLCAN protocol as expected by the `slcan` SocketCAN driver, so that it can be used with [`can-utils`](https://github.com/linux-can/can-utils)' `slcand` and other utilities like `cansniffer`.
 

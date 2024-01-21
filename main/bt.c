@@ -34,19 +34,15 @@ static char *bda2str(uint8_t *bda, char *str, size_t size)
 
 static void gapCallback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param)
 {
+    char bda_str[18] = {0};
+
     switch (event)
     {
     case ESP_BT_GAP_AUTH_CMPL_EVT:
-        ESP_LOGI(TAG, "ESP_BT_GAP_AUTH_CMPL_EVT");
-        if (param->auth_cmpl.stat == ESP_BT_STATUS_SUCCESS)
-        {
-            ESP_LOGI(TAG, "authentication success: %s", param->auth_cmpl.device_name);
-            esp_log_buffer_hex(TAG, param->auth_cmpl.bda, ESP_BD_ADDR_LEN);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "authentication failed, status:%d", param->auth_cmpl.stat);
-        }
+        ESP_LOGI(TAG, "ESP_BT_GAP_AUTH_CMPL_EVT status:%d device_name:%s bda:[%s]",
+                 param->auth_cmpl.stat,
+                 param->auth_cmpl.device_name,
+                 bda2str(param->auth_cmpl.bda, bda_str, sizeof(bda_str)));
         break;
     default:
         ESP_LOGI(TAG, "GAP event:%d", event);
@@ -77,7 +73,8 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     case ESP_SPP_START_EVT:
         if (param->start.status == ESP_SPP_SUCCESS)
         {
-            ESP_LOGI(TAG, "ESP_SPP_START_EVT handle:%" PRIu32 " sec_id:%d scn:%d", param->start.handle, param->start.sec_id, param->start.scn);
+            ESP_LOGI(TAG, "ESP_SPP_START_EVT handle:%lu sec_id:%u scn:%u",
+                     param->start.handle, param->start.sec_id, param->start.scn);
             esp_bt_dev_set_device_name("ESP32 OBD-II");
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
         }
@@ -110,7 +107,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         message_free(&sppMessage);
         break;
     case ESP_SPP_SRV_OPEN_EVT:
-        ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%" PRIu32 ", rem_bda:[%s]",
+        ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%lu rem_bda:[%s]",
                  param->srv_open.status,
                  param->srv_open.handle,
                  bda2str(param->srv_open.rem_bda, bda_str, sizeof(bda_str)));
@@ -130,7 +127,7 @@ static void txTask(void *arg)
 
         // Read multiple messages from queue and send them at once (max 64bytes or 10ms timeout)
         message_t msg;
-        uint8_t buf[64];
+        uint8_t buf[128];
         uint8_t *pBuf = buf;
         uint8_t received = 0;
         // TODO how to ensure we don't delay old messages too long?
@@ -156,8 +153,6 @@ static void txTask(void *arg)
 
         if (received > 0)
         {
-            // ESP_LOG_BUFFER_HEXDUMP(TAG, buf, sizeof(buf), ESP_LOG_INFO);
-
             size_t len = pBuf - buf;
 
             if (sppHandle > 0)
@@ -170,7 +165,7 @@ static void txTask(void *arg)
             else
             {
                 // SPP not connected, discard message
-                ESP_LOGI(TAG, "discard messages:%d bytes:%d", received, len);
+                // ESP_LOGI(TAG, "discard messages:%d bytes:%d", received, len);
                 xSemaphoreGive(sppWriteLock);
             }
         }

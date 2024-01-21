@@ -15,11 +15,11 @@ Target is to be compatible with Linux SocketCAN slcan driver, to allow usage of 
 #include "esp_log.h"
 #include "esp_mac.h"
 
+#define TAG "SLCAN"
+
 #define SLCAN_MIN_STD_CMD_LEN (strlen("t1FF0\r"))
 #define SLCAN_MIN_EXT_CMD_LEN (strlen("T1FFFFFFF0\r"))
 #define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788\r"))
-
-static const char *TAG = "SLCAN";
 
 /// @brief Hex to ASCII conversion function
 #define HEX2ASCII(x) HEX2ASCII_LUT[(x)]
@@ -39,6 +39,7 @@ static const uint8_t ASCII2HEX_LUT[] = {
 static QueueHandle_t *_rxQueue;
 static QueueHandle_t *_txQueue;
 
+static bool timingConfigSet = false;
 static twai_timing_config_t timingConfig = {};
 
 static void sendSerialMessage(char *data, size_t len)
@@ -49,8 +50,8 @@ static void sendSerialMessage(char *data, size_t len)
         ESP_LOGE(TAG, "transmit queue full");
         message_free(&msg);
     }
-    else
-        ESP_LOGI(TAG, "serial transmit bytes:%d", len);
+    // else
+    //     ESP_LOGI(TAG, "serial transmit bytes:%d", len);
 }
 
 /// @brief Send an OK response (0x0D), with optional data
@@ -223,30 +224,37 @@ static void parseCommand(uint8_t *buf, size_t len)
                 break;
             case '2':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_50KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '3':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_100KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '4':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_125KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '5':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_250KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '6':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_500KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '7':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_800KBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             case '8':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_1MBITS();
+                timingConfigSet = true;
                 sendOkResponse(NULL);
                 break;
             default:
@@ -255,10 +263,14 @@ static void parseCommand(uint8_t *buf, size_t len)
         }
         break;
     case 'O': // Open CAN channel
-              // TODO check if timingConfig was set previously
         if (can_isOpen())
         {
-            ESP_LOGE(TAG, "already open or brp:%" PRIu32, timingConfig.brp);
+            ESP_LOGE(TAG, "already open");
+            sendErrorResponse();
+        }
+        else if (!timingConfigSet)
+        {
+            ESP_LOGE(TAG, "bitrate has not been set");
             sendErrorResponse();
         }
         else
@@ -273,15 +285,27 @@ static void parseCommand(uint8_t *buf, size_t len)
             }
         }
         break;
-    case 'L':                                      // Open CAN channel in listen-only mode
-        if (can_isOpen() || timingConfig.brp == 0) // TODO
+    case 'L': // Open CAN channel in listen-only mode
+        if (can_isOpen())
+        {
+            ESP_LOGE(TAG, "already open");
             sendErrorResponse();
+        }
+        else if (!timingConfigSet)
+        {
+            ESP_LOGE(TAG, "bitrate has not been set");
+            sendErrorResponse();
+        }
         else
         {
-            if (can_open(TWAI_MODE_LISTEN_ONLY, &timingConfig) == ESP_OK)
+            esp_err_t res = can_open(TWAI_MODE_LISTEN_ONLY, &timingConfig);
+            if (res == ESP_OK)
                 sendOkResponse(NULL);
             else
+            {
+                ESP_LOGE(TAG, "can_open returned %s", esp_err_to_name(res));
                 sendErrorResponse();
+            }
         }
         break;
     case 'C': // Close CAN channel
@@ -448,7 +472,7 @@ static void canRxTask(void *arg)
     {
         twai_message_t msg;
         xQueueReceive(can_rxQueue, &msg, portMAX_DELAY);
-        // ESP_LOGW(TAG, "received from can_rxQueue id:%" PRIu32, msg.identifier);
+        // ESP_LOGW(TAG, "received from can_rxQueue id:%lu", msg.identifier);
 
         char out[32];
         size_t len;

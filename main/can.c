@@ -30,7 +30,7 @@ static void canRxTask(void *arg)
             // Try receiving for 100ms max and sending to queue for 100ms if full
             if (twai_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
             {
-                ESP_LOGI(TAG, "received message id:%" PRIu32, msg.identifier);
+                // ESP_LOGI(TAG, "received id:%lx", msg.identifier);
                 if (xQueueSend(can_rxQueue, &msg, pdMS_TO_TICKS(100)) == errQUEUE_FULL)
                     ESP_LOGE(TAG, "receive queue full");
             }
