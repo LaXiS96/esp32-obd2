@@ -2,7 +2,7 @@ menu "Application configuration"
 
     config APP_BT_QUEUES_LEN
         int "Bluetooth message queue size"
-        default 8
+        default 32
 
     config APP_BT_TX_TASK_PRIO
         int "Bluetooth TX task priority"
@@ -15,10 +15,6 @@ menu "Application configuration"
     config APP_CAN_RX_GPIO_NUM
         int "CAN RX GPIO number"
         default 22
-
-    config APP_CAN_RX_TASK_PRIO
-        int "CAN RX task priority"
-        default 1
 
     config APP_SLCAN_SERIAL_RX_TASK_PRIO
         int "SLCAN serial RX task priority"

@@ -72,6 +72,16 @@ sudo ip link set up vcan0
 canplayer vcan0=slcan0 -li -I ./candump-*.log
 ```
 
+### OBD-II over CAN
+
+Broadcast request ID: `0x7DF`
+ECU-specific request ID: `0x7E0`-`0x7E7`
+ECU-specific response ID: `0x7E8`-`0x7EF`
+
+OBD format: (8 data bytes) <number of bytes> <service mode> <PID> ...
+
+0x7DF - 2 0x01 0x00 0xCC 0xCC 0xCC 0xCC 0xCC
+
 ### OBD-II pin and cable mapping
 
 Ethernet twisted pair cable should help with signal integrity (it's designed to carry differential signals).
@@ -107,7 +117,7 @@ Schematic of the microSD breakout board I'm using:
 
 ![schematic](https://win.adrirobot.it/Micro_SD_Card_Module/Micro-SD-Card-Module_circuit.jpg)
 
-### Useful links
+### Links
 
 - http://opengarages.org/handbook/ebook/
 - https://forscan.org/forum/viewtopic.php?t=4
@@ -118,12 +128,29 @@ Schematic of the microSD breakout board I'm using:
 - https://x-engineer.org/automotive-engineering/internal-combustion-engines/diagnostics/on-board-diagnostics-obd-modes-operation-diagnostic-services/
 - https://www.mazdaclub.it/forum/viewtopic.php?f=52&t=23307&p=272187&hilit=extra#p272187
 
-#### Mazda manufacturer messages
+#### Mazda reverse engineering
 
+GUI tools:
+- https://github.com/collin80/SavvyCAN
+- https://github.com/dschanoeh/Kayak (discontinued)
+
+Message databases:
+- https://github.com/majbthrd/MazdaCANbus
+- https://github.com/commaai/opendbc
+- https://github.com/silverchris/Mazda3_Canbus_Messages
+
+Message database conversion:
+- https://github.com/ebroecker/canmatrix
+- https://github.com/julietkilo/CANBabel
+
+Other tools:
+- https://github.com/cantools/cantools
+
+Blogs:
 - http://she-devel.com/Mazda3_Controller_Area_Network_Experimentation.html
 - http://www.madox.net/blog/projects/mazda-can-bus/
-- https://github.com/majbthrd/MazdaCANbus/blob/master/skyactiv.kcd
 - http://opengarages.org/index.php/Mazda_CAN_ID
+- https://mx5things.blog/2017/02/18/can-bus-sniffer/
 
 #### Linux SocketCAN
 

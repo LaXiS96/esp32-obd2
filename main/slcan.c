@@ -38,7 +38,7 @@ static const uint8_t ASCII2HEX_LUT[] = {
 
 static QueueHandle_t *_rxQueue;
 static QueueHandle_t *_txQueue;
-
+static TaskHandle_t _canRxTask = NULL;
 static bool timingConfigSet = false;
 static twai_timing_config_t timingConfig = {};
 
@@ -197,6 +197,23 @@ static esp_err_t parseFrame(uint8_t *buf, size_t len, twai_message_t *msg)
     return ESP_OK;
 }
 
+/// @brief Handle received CAN frames
+static void canRxTask(void *arg)
+{
+    while (1)
+    {
+        twai_message_t msg;
+        if (can_receive(&msg, portMAX_DELAY) == ESP_OK)
+        {
+            // TODO add timestamp
+            char out[32];
+            size_t len;
+            formatFrame(&msg, out, &len);
+            sendSerialMessage(out, len);
+        }
+    }
+}
+
 /// @brief Parse received command and perform requested action
 static void parseCommand(uint8_t *buf, size_t len)
 {
@@ -212,16 +229,14 @@ static void parseCommand(uint8_t *buf, size_t len)
     {
     case 'S': // Set CAN standard bitrate
         if (can_isOpen())
+        {
+            ESP_LOGE(TAG, "\"%.*s\": cannot set bitrate while connection is open", len - 1, buf);
             sendErrorResponse();
+        }
         else
         {
             switch (buf[1])
             {
-            case '0':
-            case '1':
-                // 10kbps and 20kbps unsupported
-                sendErrorResponse();
-                break;
             case '2':
                 timingConfig = (twai_timing_config_t)TWAI_TIMING_CONFIG_50KBITS();
                 timingConfigSet = true;
@@ -258,122 +273,103 @@ static void parseCommand(uint8_t *buf, size_t len)
                 sendOkResponse(NULL);
                 break;
             default:
+                ESP_LOGE(TAG, "\"%.*s\": unsupported bitrate", len - 1, buf);
                 sendErrorResponse();
             }
         }
         break;
     case 'O': // Open CAN channel
-        if (can_isOpen())
-        {
-            ESP_LOGE(TAG, "already open");
-            sendErrorResponse();
-        }
-        else if (!timingConfigSet)
-        {
-            ESP_LOGE(TAG, "bitrate has not been set");
-            sendErrorResponse();
-        }
-        else
-        {
-            esp_err_t res = can_open(TWAI_MODE_NORMAL, &timingConfig);
-            if (res == ESP_OK)
-                sendOkResponse(NULL);
-            else
-            {
-                ESP_LOGE(TAG, "can_open returned %s", esp_err_to_name(res));
-                sendErrorResponse();
-            }
-        }
-        break;
     case 'L': // Open CAN channel in listen-only mode
         if (can_isOpen())
         {
-            ESP_LOGE(TAG, "already open");
+            ESP_LOGE(TAG, "\"%.*s\": connection is already open", len - 1, buf);
             sendErrorResponse();
         }
         else if (!timingConfigSet)
         {
-            ESP_LOGE(TAG, "bitrate has not been set");
+            ESP_LOGE(TAG, "\"%.*s\": bitrate has not been set", len - 1, buf);
             sendErrorResponse();
         }
         else
         {
-            esp_err_t res = can_open(TWAI_MODE_LISTEN_ONLY, &timingConfig);
+            twai_mode_t mode = buf[0] == 'L' ? TWAI_MODE_LISTEN_ONLY : TWAI_MODE_NORMAL;
+            esp_err_t res = can_open(mode, &timingConfig);
             if (res == ESP_OK)
+            {
+                if (_canRxTask != NULL)
+                {
+                    ESP_LOGW(TAG, "_canRxTask is not NULL");
+                    vTaskDelete(_canRxTask);
+                }
+
+                xTaskCreate(canRxTask, "slcan canRx", 3072, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, &_canRxTask);
                 sendOkResponse(NULL);
+            }
             else
             {
-                ESP_LOGE(TAG, "can_open returned %s", esp_err_to_name(res));
+                ESP_LOGE(TAG, "\"%.*s\": can_open returned %s", len - 1, buf, esp_err_to_name(res));
                 sendErrorResponse();
             }
         }
         break;
     case 'C': // Close CAN channel
         if (!can_isOpen())
+        {
+            ESP_LOGE(TAG, "\"%.*s\": connection is not open", len - 1, buf);
             sendErrorResponse();
+        }
         else
         {
             if (can_close() == ESP_OK)
+            {
+                if (_canRxTask != NULL)
+                {
+                    vTaskDelete(_canRxTask);
+                    _canRxTask = NULL;
+                }
                 sendOkResponse(NULL);
+            }
             else
                 sendErrorResponse();
         }
         break;
     case 't': // Send standard frame
     case 'r': // Send standard remote frame
-        if (!can_isOpen() || can_getMode() != TWAI_MODE_NORMAL)
-            sendErrorResponse();
-        else
-        {
-            twai_message_t frame;
-            if (parseFrame(buf, len, &frame) == ESP_OK)
-            {
-                if (can_transmit(&frame) == ESP_OK)
-                    sendOkResponse("z");
-                else
-                {
-                    ESP_LOGE(TAG, "can_transmit failed");
-                    sendErrorResponse();
-                }
-            }
-            else
-            {
-                ESP_LOGE(TAG, "parseFrame failed");
-                sendErrorResponse();
-            }
-        }
-        break;
     case 'T': // Send extended frame
     case 'R': // Send extended remote frame
-        if (!can_isOpen() || can_getMode() != TWAI_MODE_NORMAL)
+        if (!can_isOpen())
+        {
+            ESP_LOGE(TAG, "\"%.*s\": connection is not open", len - 1, buf);
             sendErrorResponse();
+        }
+        else if (can_getMode() != TWAI_MODE_NORMAL)
+        {
+            ESP_LOGW(TAG, "mode:%d", can_getMode());
+            ESP_LOGE(TAG, "\"%.*s\": mode does not allow sending frames", len - 1, buf);
+            sendErrorResponse();
+        }
         else
         {
             twai_message_t frame;
             if (parseFrame(buf, len, &frame) == ESP_OK)
             {
-                if (can_transmit(&frame) == ESP_OK)
-                    sendOkResponse("Z");
+                if (can_transmit(&frame, pdMS_TO_TICKS(100)) == ESP_OK)
+                    sendOkResponse(frame.extd == 0 ? "z" : "Z");
                 else
                 {
-                    ESP_LOGE(TAG, "can_transmit failed");
+                    ESP_LOGE(TAG, "\"%.*s\": can_transmit failed", len - 1, buf);
                     sendErrorResponse();
                 }
             }
             else
             {
-                ESP_LOGE(TAG, "parseFrame failed");
+                ESP_LOGE(TAG, "\"%.*s\": parseFrame failed", len - 1, buf);
                 sendErrorResponse();
             }
         }
         break;
-    case 'F': // Read and clear status flags
-        if (!can_isOpen())
-            sendErrorResponse();
-        else
-        {
-            // TODO
-        }
+    case 'F': // TODO Read and clear status flags
+        sendErrorResponse();
         break;
     case 'V': // Query adapter version
         sendOkResponse("V0000");
@@ -389,6 +385,7 @@ static void parseCommand(uint8_t *buf, size_t len)
         break;
     }
     default:
+        ESP_LOGE(TAG, "\"%.*s\": unknown command", len - 1, buf);
         sendErrorResponse();
     }
 }
@@ -404,7 +401,7 @@ static void serialRxTask(void *arg)
     {
         xQueueReceive(*_rxQueue, &msg, portMAX_DELAY);
         // ESP_LOG_BUFFER_HEXDUMP(TAG, msg.data, msg.length, ESP_LOG_INFO);
-        ESP_LOGI(TAG, "serial received bytes:%d", msg.length);
+        // ESP_LOGI(TAG, "serial received bytes:%d", msg.length);
 
         uint8_t *pCmdStart = msg.data;                          // Command start position
         uint8_t *pCmdEnd = memchr(pCmdStart, '\r', msg.length); // Command end position (CR character)
@@ -465,29 +462,12 @@ static void serialRxTask(void *arg)
     }
 }
 
-/// @brief Handle received CAN frames
-static void canRxTask(void *arg)
-{
-    while (1)
-    {
-        twai_message_t msg;
-        xQueueReceive(can_rxQueue, &msg, portMAX_DELAY);
-        // ESP_LOGW(TAG, "received from can_rxQueue id:%lu", msg.identifier);
-
-        char out[32];
-        size_t len;
-        formatFrame(&msg, out, &len);
-        sendSerialMessage(out, len);
-    }
-}
-
 void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
 {
     _rxQueue = rxQueue;
     _txQueue = txQueue;
 
     xTaskCreate(serialRxTask, "slcan serialRx", 3072, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
-    xTaskCreate(canRxTask, "slcan canRx", 3072, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

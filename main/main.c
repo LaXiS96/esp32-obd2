@@ -50,7 +50,6 @@ void app_main(void)
     // uartInit();
     bt_init();
     // wifiInit();
-    can_init();
     slcan_init(&btRxQueue, &btTxQueue);
     // sdInit();
 

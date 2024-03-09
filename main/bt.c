@@ -125,12 +125,11 @@ static void txTask(void *arg)
         // Wait for previous write to finish
         xSemaphoreTake(sppWriteLock, portMAX_DELAY);
 
-        // Read multiple messages from queue and send them at once (max 64bytes or 10ms timeout)
+        // Read multiple messages from queue and send them at once
         message_t msg;
-        uint8_t buf[128];
+        uint8_t buf[512]; // TODO test size, look at stack usage
         uint8_t *pBuf = buf;
         uint8_t received = 0;
-        // TODO how to ensure we don't delay old messages too long?
         while (xQueueReceive(btTxQueue, &msg, pdMS_TO_TICKS(10)) == pdTRUE)
         {
             uint8_t free = buf + sizeof(buf) - pBuf;
@@ -159,6 +158,7 @@ static void txTask(void *arg)
             {
                 sppMessage = message_new(buf, len);
                 ESP_LOGI(TAG, "write messages:%d bytes:%d", received, sppMessage.length);
+                // ESP_LOG_BUFFER_HEX(TAG, sppMessage.data, sppMessage.length);
                 esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
                 // sppMessage will be freed and sppWriteLock given in SPP callbacks
             }
@@ -200,7 +200,7 @@ void bt_init(void)
     sppWriteLock = xSemaphoreCreateBinary();
     xSemaphoreGive(sppWriteLock);
 
-    xTaskCreate(txTask, "btTx", 3072, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
+    xTaskCreate(txTask, "btTx", 4096, NULL, CONFIG_APP_BT_TX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }
