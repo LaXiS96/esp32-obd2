@@ -14,13 +14,15 @@ Built and tested with [ESP-IDF v5.1](https://github.com/espressif/esp-idf).
 - ✔ Bluetooth
     - `slcan` over Bluetooth Classic Serial Port Profile (SPP)
     - legacy pairing PIN is 0000
-- ❔ logging to SD card
-    - same file format as `candump`?
-- ❔ socket communication over WiFi softAP
-    - how to keep compatibility with `slcan`? just make a TCP-serial bridge with `socat`? any other way to create a SocketCAN interface while still using `slcan` over TCP?
+    - note: unreliable, dropped messages are highly likely (though not much effort has been put into tuning queue sizes)
+- ❔ WiFi: softAP and/or STAtion
+    - is there some standard protocol for CAN over TCP/UDP? maybe `socketcand` itself?
+    - should we keep compatibility with `slcan`? just make a TCP-serial bridge with `socat`? any other way to create a SocketCAN interface while still using `slcan` over TCP?
     - interesting: `python-can` supports "[remote serial ports](https://python-can.readthedocs.io/en/master/interfaces/slcan.html)"
     - TCP unicast or UDP multicast?
     - payload serialization strategy?
+- ❔ logging to SD card
+    - same file format as `candump`?
 - ❔ OBD diagnostics
 - ❔ reverse engineered Mazda-specific messages
 - ❔ custom protocol for better efficiency?

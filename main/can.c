@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -29,10 +30,16 @@ esp_err_t can_open(twai_mode_t mode, twai_timing_config_t *timingConfig)
         return ESP_ERR_INVALID_STATE;
 
     ESP_LOGI(TAG, "opening");
-    canGeneralConfig = &(twai_general_config_t)TWAI_GENERAL_CONFIG_DEFAULT(CONFIG_APP_CAN_TX_GPIO_NUM, CONFIG_APP_CAN_RX_GPIO_NUM, mode);
+
+    twai_general_config_t generalConfig = TWAI_GENERAL_CONFIG_DEFAULT(CONFIG_APP_CAN_TX_GPIO_NUM, CONFIG_APP_CAN_RX_GPIO_NUM, mode);
+    canGeneralConfig = malloc(sizeof(generalConfig));
+    memcpy(canGeneralConfig, &generalConfig, sizeof(generalConfig));
+
     const twai_filter_config_t filterConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+    
     ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
     ESP_ERROR_CHECK(twai_start());
+
     isOpen = true;
     ESP_LOGI(TAG, "opened");
     return ESP_OK;

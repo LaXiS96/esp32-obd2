@@ -14,12 +14,13 @@ Target is to be compatible with Linux SocketCAN slcan driver, to allow usage of 
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 
 #define TAG "SLCAN"
 
 #define SLCAN_MIN_STD_CMD_LEN (strlen("t1FF0\r"))
 #define SLCAN_MIN_EXT_CMD_LEN (strlen("T1FFFFFFF0\r"))
-#define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788\r"))
+#define SLCAN_MAX_CMD_LEN (strlen("T1FFFFFFF81122334455667788FFFF\r")) // Including timestamp (2 bytes)
 
 /// @brief Hex to ASCII conversion function
 #define HEX2ASCII(x) HEX2ASCII_LUT[(x)]
@@ -40,7 +41,7 @@ static QueueHandle_t *_rxQueue;
 static QueueHandle_t *_txQueue;
 static TaskHandle_t _canRxTask = NULL;
 static bool timingConfigSet = false;
-static twai_timing_config_t timingConfig = {};
+static twai_timing_config_t timingConfig = {0};
 
 static void sendSerialMessage(char *data, size_t len)
 {
@@ -84,7 +85,7 @@ static void sendErrorResponse(void)
 /// @param msg input frame
 /// @param str formatted output string, must be at least SLCAN_MAX_CMD_LEN+1 long
 /// @param outLen length of formatted output
-static void formatFrame(twai_message_t *msg, char *str, size_t *outLen)
+static void formatFrame(twai_message_t *msg, char *str, size_t *outLen, uint16_t timestamp)
 {
     char *pStr = str;
 
@@ -126,6 +127,14 @@ static void formatFrame(twai_message_t *msg, char *str, size_t *outLen)
     {
         *pStr++ = HEX2ASCII(msg->data[i] >> 4);
         *pStr++ = HEX2ASCII(msg->data[i] & 0xF);
+    }
+
+    if (timestamp != 0)
+    {
+        *pStr++ = HEX2ASCII(timestamp >> 12 & 0xF);
+        *pStr++ = HEX2ASCII(timestamp >> 8 & 0xF);
+        *pStr++ = HEX2ASCII(timestamp >> 4 & 0xF);
+        *pStr++ = HEX2ASCII(timestamp & 0xF);
     }
 
     *pStr++ = '\r';
@@ -203,12 +212,14 @@ static void canRxTask(void *arg)
     while (1)
     {
         twai_message_t msg;
-        if (can_receive(&msg, portMAX_DELAY) == ESP_OK)
+        if (can_receive(&msg, pdMS_TO_TICKS(100)) == ESP_OK)
         {
-            // TODO add timestamp
+            // TODO add timestamp (Zn) command
+            // int64_t timeUs = esp_timer_get_time();
+            // uint16_t timeMs = (timeUs / 1000) & 0xFFFF;
             char out[32];
             size_t len;
-            formatFrame(&msg, out, &len);
+            formatFrame(&msg, out, &len, /*timeMs*/ 0);
             sendSerialMessage(out, len);
         }
     }

@@ -15,24 +15,27 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #define TESTPATTERN "12345678987654321"
 
 static char taskList[1024];
-void testBtTask(void *arg)
+void testTask(void *arg)
 {
     while (1)
     {
         // message_t msg = message_new((uint8_t *)TESTPATTERN, sizeof(TESTPATTERN));
         // if (xQueueSend(btTxQueue, &msg, 0) == errQUEUE_FULL)
         // {
-        //     ESP_LOGE("testBtTask", "queue full");
+        //     ESP_LOGE("testTask", "queue full");
         //     message_free(&msg);
         // }
+
+        heap_caps_print_heap_info(MALLOC_CAP_DEFAULT);
 
         vTaskList(taskList);
         ESP_LOGW("task", "%s", taskList);
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 
@@ -53,5 +56,5 @@ void app_main(void)
     slcan_init(&btRxQueue, &btTxQueue);
     // sdInit();
 
-    // xTaskCreate(testBtTask, "testBtTask", 2048, NULL, 1, NULL);
+    // xTaskCreate(testTask, "testTask", 2048, NULL, 1, NULL);
 }

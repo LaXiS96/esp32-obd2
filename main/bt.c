@@ -62,9 +62,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             esp_spp_start_srv(ESP_SPP_SEC_AUTHENTICATE, ESP_SPP_ROLE_SLAVE, 0, "SPP");
         }
         else
-        {
             ESP_LOGE(TAG, "ESP_SPP_INIT_EVT status:%d", param->init.status);
-        }
         break;
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
@@ -79,9 +77,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
             esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
         }
         else
-        {
             ESP_LOGE(TAG, "ESP_SPP_START_EVT status:%d", param->start.status);
-        }
         break;
     case ESP_SPP_DATA_IND_EVT:
         ESP_LOGI(TAG, "ESP_SPP_DATA_IND_EVT length:%d", param->data_ind.len);
@@ -120,16 +116,28 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 
 static void txTask(void *arg)
 {
+    message_t msgRemainder = {0}; // Message received during previous cycle that did not fit in the buffer
+
     while (1)
     {
         // Wait for previous write to finish
         xSemaphoreTake(sppWriteLock, portMAX_DELAY);
 
         // Read multiple messages from queue and send them at once
-        message_t msg;
-        uint8_t buf[512]; // TODO test size, look at stack usage
+        uint8_t buf[512]; // TODO test size, look at stack usage, bt stack limit?
         uint8_t *pBuf = buf;
         uint8_t received = 0;
+
+        if (msgRemainder.data != NULL)
+        {
+            memcpy(pBuf, msgRemainder.data, msgRemainder.length);
+            pBuf += msgRemainder.length;
+            received++;
+            message_free(&msgRemainder);
+            msgRemainder.data = NULL;
+        }
+
+        message_t msg;
         while (xQueueReceive(btTxQueue, &msg, pdMS_TO_TICKS(10)) == pdTRUE)
         {
             uint8_t free = buf + sizeof(buf) - pBuf;
@@ -143,9 +151,8 @@ static void txTask(void *arg)
             }
             else
             {
-                // TODO store msg for next loop
-                ESP_LOGW(TAG, "discarded message length:%d free:%d", msg.length, free);
-                message_free(&msg);
+                msgRemainder.length = msg.length;
+                msgRemainder.data = msg.data;
                 break;
             }
         }
@@ -157,7 +164,7 @@ static void txTask(void *arg)
             if (sppHandle > 0)
             {
                 sppMessage = message_new(buf, len);
-                ESP_LOGI(TAG, "write messages:%d bytes:%d", received, sppMessage.length);
+                // ESP_LOGI(TAG, "write messages:%d bytes:%d", received, sppMessage.length);
                 // ESP_LOG_BUFFER_HEX(TAG, sppMessage.data, sppMessage.length);
                 esp_spp_write(sppHandle, sppMessage.length, sppMessage.data);
                 // sppMessage will be freed and sppWriteLock given in SPP callbacks
