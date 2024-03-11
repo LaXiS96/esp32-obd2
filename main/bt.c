@@ -20,7 +20,7 @@ QueueHandle_t btTxQueue;
 
 static uint32_t sppHandle = 0;
 static SemaphoreHandle_t sppWriteLock = NULL;
-static message_t sppMessage; // Message to be written to SPP
+static message_t sppMessage; // Current message being written to SPP
 
 static char *bda2str(uint8_t *bda, char *str, size_t size)
 {
@@ -67,6 +67,7 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
     case ESP_SPP_CLOSE_EVT:
         ESP_LOGI(TAG, "ESP_SPP_CLOSE_EVT");
         sppHandle = 0;
+        xSemaphoreGive(sppWriteLock);
         break;
     case ESP_SPP_START_EVT:
         if (param->start.status == ESP_SPP_SUCCESS)
@@ -94,13 +95,12 @@ static void sppCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
         if (param->write.status != ESP_SPP_SUCCESS || param->write.cong)
             ESP_LOGW(TAG, "ESP_SPP_WRITE_EVT status:%d cong:%d len:%d", param->write.status, param->write.cong, param->write.len);
 
-        // Allow new writes only if there is no congestion (ESP_SPP_CONG_EVT event will arrive otherwise)
-        // TODO is cong valid if status != success?
-        if (!param->write.cong)
-            xSemaphoreGive(sppWriteLock);
-
         // TODO maybe it makes sense to resend if the write was not successful
         message_free(&sppMessage);
+
+        // Allow new writes only if there is no congestion (ESP_SPP_CONG_EVT event will arrive otherwise)
+        if (!param->write.cong)
+            xSemaphoreGive(sppWriteLock);
         break;
     case ESP_SPP_SRV_OPEN_EVT:
         ESP_LOGI(TAG, "ESP_SPP_SRV_OPEN_EVT status:%d handle:%lu rem_bda:[%s]",
@@ -124,7 +124,7 @@ static void txTask(void *arg)
         xSemaphoreTake(sppWriteLock, portMAX_DELAY);
 
         // Read multiple messages from queue and send them at once
-        uint8_t buf[512]; // TODO test size, look at stack usage, bt stack limit?
+        uint8_t buf[1024];
         uint8_t *pBuf = buf;
         uint8_t received = 0;
 
@@ -140,7 +140,7 @@ static void txTask(void *arg)
         message_t msg;
         while (xQueueReceive(btTxQueue, &msg, pdMS_TO_TICKS(10)) == pdTRUE)
         {
-            uint8_t free = buf + sizeof(buf) - pBuf;
+            uint32_t free = buf + sizeof(buf) - pBuf;
             // ESP_LOGI(TAG, "free:%d", free);
             if (msg.length <= free)
             {
