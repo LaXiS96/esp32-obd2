@@ -313,7 +313,7 @@ static void parseCommand(uint8_t *buf, size_t len)
                     vTaskDelete(_canRxTask);
                 }
 
-                xTaskCreate(canRxTask, "slcan canRx", 3072, NULL, CONFIG_APP_SLCAN_CAN_RX_TASK_PRIO, &_canRxTask);
+                xTaskCreate(canRxTask, "slcan canRx", 3072, NULL, APP_SLCAN_CAN_RX_TASK_PRIO, &_canRxTask);
                 sendOkResponse(NULL);
             }
             else
@@ -478,7 +478,7 @@ void slcan_init(QueueHandle_t *rxQueue, QueueHandle_t *txQueue)
     _rxQueue = rxQueue;
     _txQueue = txQueue;
 
-    xTaskCreate(serialRxTask, "slcan serialRx", 3072, NULL, CONFIG_APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
+    xTaskCreate(serialRxTask, "slcan serialRx", 3072, NULL, APP_SLCAN_SERIAL_RX_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "initialized");
 }

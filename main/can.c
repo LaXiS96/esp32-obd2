@@ -31,12 +31,12 @@ esp_err_t can_open(twai_mode_t mode, twai_timing_config_t *timingConfig)
 
     ESP_LOGI(TAG, "opening");
 
-    twai_general_config_t generalConfig = TWAI_GENERAL_CONFIG_DEFAULT(CONFIG_APP_CAN_TX_GPIO_NUM, CONFIG_APP_CAN_RX_GPIO_NUM, mode);
+    twai_general_config_t generalConfig = TWAI_GENERAL_CONFIG_DEFAULT(APP_CAN_TX_GPIO_NUM, APP_CAN_RX_GPIO_NUM, mode);
     canGeneralConfig = malloc(sizeof(generalConfig));
     memcpy(canGeneralConfig, &generalConfig, sizeof(generalConfig));
 
     const twai_filter_config_t filterConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-    
+
     ESP_ERROR_CHECK(twai_driver_install(canGeneralConfig, timingConfig, &filterConfig));
     ESP_ERROR_CHECK(twai_start());
 

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "config.h"
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 

@@ -1,5 +1,6 @@
 #include "uart.h"
 
+#include "config.h"
 #include "message.h"
 
 #include <string.h>
